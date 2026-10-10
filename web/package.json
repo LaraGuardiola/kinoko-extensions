@@ -1,6 +1,6 @@
 {
   "name": "kinoko-ext-web",
-  "description": "web_search and web_fetch: no API key, Brave then DuckDuckGo then Bing, pages as readable text",
+  "description": "web_search and web_fetch: no key needed (Bing, DuckDuckGo, Marginalia; SearXNG or Brave API when set), pages as markdown",
   "private": true,
   "type": "module"
 }
