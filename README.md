@@ -8,13 +8,13 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 | `herdr` | Inside [herdr](https://herdr.dev), reports kinoko as an agent: herdr's sidebar shows it, and Flux for Android gets **Live**, the pane sized to the phone. |
 | `permission-gate` | Blocks dangerous shell commands: a hardline nothing opens (`rm -rf /`, mkfs...), a gate for `sudo`, `rm -rf`, `chmod 777`... that `KINOKO_YOLO=1` opens. |
 | `plan-mode` | Read-only: blocks `write`, `edit` and any bash command that is not plainly read-only. |
-| `web` | `web_search` and `web_fetch`: no API key; Brave, then DuckDuckGo, then Bing; pages turned into readable text. |
+| `web` | `web_search` and `web_fetch`, no key needed: Bing's feed, then Bing's page, DuckDuckGo, Marginalia (your `SEARXNG_URL` or `BRAVE_API_KEY` first when set); pages as markdown with links and code blocks. |
 
 ## Install
 
 In kinoko, open the menu with `/` and pick **extensions**: it lists this repo's extensions (fetched
 with git into `~/.kinoko/registry/`). Enter installs or updates one into `~/.kinoko/ext/<name>/`;
-Del twice removes it. An extension starts with kinoko, so restart it after a change.
+Del twice removes it. Either is in effect at once, no restart.
 
 By hand: copy a folder to `~/.kinoko/ext/<name>/` (or `./.kinoko/ext/<name>/` for one project),
 then run `bun install` in it when its `package.json` has dependencies.
