@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-permission-gate",
+  "description": "Blocks dangerous shell commands: a hardline nothing opens, a gate KINOKO_YOLO=1 opens",
+  "private": true,
+  "type": "module"
+}

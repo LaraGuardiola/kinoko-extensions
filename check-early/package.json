@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-check-early",
+  "description": "After 4 source files written with no build, typecheck, lint or test, asks the model to run one",
+  "private": true,
+  "type": "module"
+}

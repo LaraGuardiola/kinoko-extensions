@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-herdr",
+  "description": "Inside herdr, reports kinoko as an agent: herdr's sidebar and Flux Live (the pane sized to the phone)",
+  "private": true,
+  "type": "module"
+}

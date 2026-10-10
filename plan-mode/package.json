@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-plan-mode",
+  "description": "Read-only: blocks write, edit and any bash command that is not plainly read-only",
+  "private": true,
+  "type": "module"
+}

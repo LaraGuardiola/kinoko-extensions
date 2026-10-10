@@ -1,0 +1,15 @@
+{
+  "name": "kinoko-extensions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "oxlint --deny-warnings",
+    "test": "bun test",
+    "check": "oxlint --deny-warnings && tsc --noEmit && bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "oxlint": "^1.0.0",
+    "typescript": "^5.6.0"
+  }
+}
