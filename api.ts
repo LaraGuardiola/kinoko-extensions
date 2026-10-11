@@ -23,6 +23,14 @@ export interface ToolCallBlock {
   reason: string; // becomes the tool result the model sees
 }
 
+/** Asks the user before the call runs (the loop waits for the answer); a deny is the tool's result. */
+export interface ToolCallAsk {
+  ask: true;
+  reason: string; // shown to the user with the call
+}
+
+export type ToolCallDecision = ToolCallBlock | ToolCallAsk;
+
 export interface ToolResultEvent {
   name: string;
   output: string; // mutate in place to rewrite what the model sees
@@ -38,7 +46,7 @@ export interface ExtHandlers {
   session_start: (info: SessionStartInfo) => void;
   context: (messages: Message[]) => Message[]; // rewrite the history before a provider call
   before_provider_request: (req: ProviderRequest) => void;
-  tool_call: (call: ToolCallEvent) => ToolCallBlock | void;
+  tool_call: (call: ToolCallEvent) => ToolCallDecision | void;
   tool_result: (result: ToolResultEvent) => void;
   turn_end: (message: Message) => void;
   compact: (info: CompactInfo) => void;

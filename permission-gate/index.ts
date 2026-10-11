@@ -1,13 +1,14 @@
-// Blocks dangerous shell commands.
+// Gates dangerous shell commands.
 //
 // Two layers:
-//   1. a HARDLINE that nothing can switch off (wiping a filesystem or a home directory)
-//   2. a confirm/deny gate for the rest, opened with KINOKO_YOLO=1
+//   1. a HARDLINE that nothing can switch off (wiping a filesystem or a home directory): blocked,
+//      never asked, so no answer from anywhere can run it
+//   2. the rest asks the user (the TUI, the phone, Telegram) and waits; KINOKO_YOLO=1 allows it
 //
 // The yolo flag deliberately does NOT reach the hardline: there is no way to make this file allow
 // `rm -rf /`, on purpose.
 
-import type { Kinoko, ToolCallBlock } from "../api.ts";
+import type { Kinoko, ToolCallAsk, ToolCallBlock } from "../api.ts";
 
 const HARDLINE =
   /\brm\s+(-[a-z]*[rf][a-z]*\s+)+(\/|~|\$HOME|\/\*|\/\.\*|\.\s*$|\/\s*$)|mkfs(\.\w+)?\s|:\(\)\s*\{\s*:\|:&\s*\}\s*;\s*:|>\s*\/dev\/sd[a-z]/i;
@@ -23,7 +24,7 @@ const GATED: Array<[string, RegExp]> = [
 const yolo = process.env.KINOKO_YOLO === "1";
 
 export default function (k: Kinoko): void {
-  k.log(`permission-gate loaded (${yolo ? "yolo: gated commands allowed" : "confirm mode"})`);
+  k.log(`permission-gate loaded (${yolo ? "yolo: gated commands allowed" : "asks before gated commands"})`);
 
   k.on("tool_call", (call) => {
     if (call.name !== "bash") return;
@@ -38,14 +39,15 @@ export default function (k: Kinoko): void {
     for (const [label, re] of GATED) {
       if (!re.test(cmd)) continue;
       if (yolo) return;
-      return block(
-        cmd,
-        `denied by permission-gate: \`${label}\` needs confirmation. Narrow the command, or run it yourself outside Kinoko. (KINOKO_YOLO=1 allows gated commands; the hardline stays blocked)`,
-      );
+      return ask(`permission-gate: \`${label}\` needs your confirmation`);
     }
   });
 }
 
 function block(_cmd: string, reason: string): ToolCallBlock {
   return { block: true, reason: reason };
+}
+
+function ask(reason: string): ToolCallAsk {
+  return { ask: true, reason: reason };
 }

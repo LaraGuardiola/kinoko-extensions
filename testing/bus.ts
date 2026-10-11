@@ -2,7 +2,7 @@
 // (on, registerTool, registerCommand, registerRenderer, log) and the same way kinoko fires events back. Handlers
 // that throw are skipped, as in kinoko.
 
-import type { CommandHandler, ExtEvent, ExtHandlers, FenceRenderer, Kinoko, Tool, ToolCallBlock, ToolCallEvent } from "../api.ts";
+import type { CommandHandler, ExtEvent, ExtHandlers, FenceRenderer, Kinoko, Tool, ToolCallAsk, ToolCallBlock, ToolCallDecision, ToolCallEvent } from "../api.ts";
 
 type AnyHandler = (arg: never) => unknown;
 
@@ -56,15 +56,19 @@ export class Bus implements Kinoko {
   }
 
   /** tool_call: the first handler that blocks wins. */
-  beforeTool(call: ToolCallEvent): ToolCallBlock | undefined {
+  /** The first block wins, even over an earlier ask, as in kinoko. */
+  beforeTool(call: ToolCallEvent): ToolCallDecision | undefined {
+    let ask: ToolCallAsk | undefined;
     for (const handler of this.#handlers.get("tool_call") ?? []) {
       try {
         const decision = (handler as (c: ToolCallEvent) => unknown)(call);
-        if (typeof decision === "object" && decision !== null && (decision as ToolCallBlock).block === true) return decision as ToolCallBlock;
+        if (typeof decision !== "object" || decision === null) continue;
+        if ((decision as ToolCallBlock).block === true) return decision as ToolCallBlock;
+        if (ask === undefined && (decision as ToolCallAsk).ask === true) ask = decision as ToolCallAsk;
       } catch {
         // skipped, as in kinoko
       }
     }
-    return undefined;
+    return ask;
   }
 }
