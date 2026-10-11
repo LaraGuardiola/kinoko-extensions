@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Bus } from "../testing/bus.ts";
-import install, { describe as describeState, findSongs, music } from "./index.ts";
+import install, { describe as describeState, findSongs, music, songsIn } from "./index.ts";
 import type { Music } from "./index.ts";
 
 const ctx = { signal: new AbortController().signal, cwd: "/" };
@@ -17,7 +17,16 @@ function fake(running = true): { m: Music; ops: Array<[string, unknown]>; starte
   const ops: Array<[string, unknown]> = [];
   let up = running;
   let didStart = false;
-  const state = { state: "stopped", volume: -10, total: 2, logical_track: { title: "Lofi Stream", stream: true } };
+  // The live playlist: two streams to start with.
+  const tracks: Array<{ path: string; stream?: boolean }> = [{ path: "http://lofi", stream: true }, { path: "http://synth", stream: true }];
+  const state = { state: "stopped", volume: -10, total: 2, index: 0, logical_track: { title: "Lofi Stream", stream: true } as Record<string, unknown> };
+  const at = (i: number): void => {
+    // Like cliamp: a song whose file is gone does not play.
+    const t = tracks[i];
+    state.index = i;
+    state.logical_track = { path: t?.path, stream: t?.stream };
+    state.state = t && (t.stream || existsSync(t.path)) ? "playing" : "stopped";
+  };
   const m: Music = {
     library,
     start: () => {
@@ -30,8 +39,13 @@ function fake(running = true): { m: Music; ops: Array<[string, unknown]>; starte
       const op = args[3] ?? "";
       const params = JSON.parse(args[5] ?? "{}") as Record<string, unknown>;
       ops.push([op, params]);
-      if (op === "queue") state.total++;
-      if (op === "queue.play") state.state = "playing";
+      if (op === "queue") tracks.push({ path: String(params.path) });
+      if (op === "queue.remove") tracks.splice(Number(params.index), 1);
+      if (op === "queue.play") at(Number(params.index));
+      if (op === "next") at(state.index + 1 < tracks.length ? state.index + 1 : -1);
+      if (op === "next" && state.index === -1) Object.assign(state, { index: tracks.length - 1, state: "stopped" });
+      state.total = tracks.length;
+      if (op === "queue.list") return { code: 0, out: JSON.stringify({ ok: true, job: { state: "succeeded", result: { tracks }, snapshot: state } }) };
       if (op === "volume.adjust") state.volume += Number(params.value);
       if (op === "provider.search") return { code: 0, out: JSON.stringify({ ok: true, job: { state: "succeeded", result: { tracks: [{ title: "Jazz FM", path: "http://jazz" }] }, snapshot: state } }) };
       if (op === "runtime.snapshot") return { code: 0, out: JSON.stringify({ ok: true, snapshot: state }) }; // answered at once, no job
@@ -59,8 +73,32 @@ describe("cliamp", () => {
     const { m, ops, started } = fake(false);
     const out = await music({ action: "play", query: "glue gun" }, ctx, m);
     expect(started()).toBe(true);
-    expect(ops).toEqual([["queue", { path: join(library, "Fox Stevenson/Glue Gun.mp3") }], ["queue.play", { index: 2 }]]);
+    expect(ops.filter(([op]) => op !== "queue.list")).toEqual([["queue", { path: join(library, "Fox Stevenson/Glue Gun.mp3") }], ["queue.play", { index: 2 }]]);
     expect(out).toStartWith("playing Glue Gun.mp3\n▶ playing:");
+  });
+
+  test("a folder, by its name in the library: every song in it queued and the first played", async () => {
+    const { m, ops } = fake();
+    expect(await songsIn(join(library, "Fox Stevenson"))).toEqual([join(library, "Fox Stevenson/Glue Gun.mp3"), join(library, "Fox Stevenson/Killjoy.flac")]);
+    const out = await music({ action: "play", query: "fox stevenson" }, ctx, m);
+    expect(ops.filter(([op]) => op === "queue" || op === "queue.play").map(([, p]) => p)).toEqual([{ path: join(library, "Fox Stevenson/Glue Gun.mp3") }, { path: join(library, "Fox Stevenson/Killjoy.flac") }, { index: 2 }]);
+    expect(out).toStartWith("playing 2 songs from Fox Stevenson: from 2 to 3 in the playlist\n▶ playing:");
+    // next plays the second; after the last one it says the playlist ended.
+    expect(await music({ action: "next" }, ctx, m)).toStartWith("▶ playing:");
+    expect(await music({ action: "next" }, ctx, m)).toStartWith("nothing after this one: the playlist ended\n■ stopped");
+  });
+
+  test("songs whose files were moved away are taken out of the playlist before next lands on them", async () => {
+    const { m, ops } = fake();
+    await music({ action: "queue", query: join(library, "Other - Glue Factory.ogg") }, ctx, m);
+    await music({ action: "queue", query: join(library, "Fox Stevenson/Glue Gun.mp3") }, ctx, m);
+    await music({ action: "play", index: 2 }, ctx, m);
+    // Moved out of the library after it was queued: cliamp would stop on it.
+    rmSync(join(library, "Other - Glue Factory.ogg"));
+    const out = await music({ action: "next" }, ctx, m);
+    expect(ops).toContainEqual(["queue.remove", { index: 2 }]);
+    expect(out).toStartWith("took 1 songs whose files are gone (moved or deleted) out of the playlist\n");
+    writeFileSync(join(library, "Other - Glue Factory.ogg"), "");
   });
 
   test("status when nothing runs does not start cliamp; with it, the state in a line", async () => {
