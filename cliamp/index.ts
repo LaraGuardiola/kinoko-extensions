@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Kinoko, ToolContext } from "../api.ts";
 import { findSongs, folderOf, songsIn } from "./library.ts";
-import { clock, searchYouTube } from "./youtube.ts";
+import { clock, isPlaylist, otherResults, youtube } from "./youtube.ts";
 import type { YouTube } from "./youtube.ts";
 
 export { findSongs, songsIn } from "./library.ts";
@@ -43,7 +43,7 @@ const defaults: Music = {
   cliamp: runCliamp,
   start: () => void Bun.spawn(["setsid", "-f", "cliamp", "--daemon", "--no-auto-play"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }),
   library: process.env.XDG_MUSIC_DIR || join(homedir(), "Music"),
-  youtube: searchYouTube,
+  youtube,
   log: join(homedir(), ".config", "cliamp", "cliamp.log"),
   sleep: (ms, signal) => new Promise((done) => {
     const t = setTimeout(done, ms);
@@ -224,6 +224,7 @@ export async function music(args: Json, ctx: ToolContext, m: Music = defaults): 
         // with all every one. Appended to the playlist (url.load would start playing even when
         // told not to), then played by its place when asked.
         const path = query.replace(/^~(?=\/)/, homedir());
+        if (isPlaylist(query)) return addAll((await m.youtube.playlist(query, signal)).map((v) => v.url), play, `the YouTube playlist (${query})`);
         if (/^https?:\/\//.test(query) || (await Bun.file(path).exists())) return addAll([path], play, path.split("/").at(-1) ?? path);
         const songs = await findSongs(m.library, query, args.all === true ? 100 : 5);
         if (songs.length === 0) return `nothing in ${m.library} matches "${query}" (youtube searches YouTube, radio searches stations)`;
@@ -233,11 +234,17 @@ export async function music(args: Json, ctx: ToolContext, m: Music = defaults): 
       }
       case "youtube": {
         if (!query) return "ERROR: music: youtube needs a query (a song, an artist)";
-        const videos = await m.youtube(query, signal);
-        const [first] = videos;
+        // all: a whole playlist (an album, a soundtrack), its videos queued in order.
+        if (args.all === true) {
+          const [list, ...others] = await m.youtube.playlists(query, signal);
+          if (!list) return `no YouTube playlist for "${query}"`;
+          const videos = await m.youtube.playlist(list.url, signal);
+          if (videos.length === 0) return `the YouTube playlist "${list.title}" is empty${otherResults(others, "playlists")}`;
+          return `${await addAll(videos.map((v) => v.url), true, `${videos.length} videos of the YouTube playlist "${list.title}"`)}${otherResults(others, "playlists")}`;
+        }
+        const [first, ...others] = await m.youtube.videos(query, signal);
         if (!first) return `nothing on YouTube for "${query}"`;
-        const others = videos.slice(1).map((v) => `  ${v.title} (${clock(v.seconds)}) ${v.url}`).join("\n");
-        return `${await addAll([first.url], true, `${first.title} (${clock(first.seconds)}) from YouTube`)}${others ? `\nalso found (play one with its link):\n${others}` : ""}`;
+        return `${await addAll([first.url], true, `${first.title}${first.seconds ? ` (${clock(first.seconds)})` : ""} from YouTube`)}${otherResults(others, "videos")}`;
       }
       case "remove": {
         // By its number in list, or the first whose title holds the query.
@@ -264,7 +271,7 @@ export default function (k: Kinoko): void {
   k.registerTool({
     name: "music",
     description:
-      "Control music in cliamp: status; play (a song from ~/Music by name, with all: true every song matching it, a folder for all its songs (its path, or its name in ~/Music: an artist's discography), a path, a URL, or a playlist index; nothing resumes), queue, pause, toggle, next, prev, stop; youtube (search YouTube and play the first video, no download; never guess a YouTube link); remove (a playlist number or part of a title), clear (empty the playlist); volume (a level in dB, -30 to 6, or up/down), seek (seconds, or +30/-10); list the playlist; find songs; radio (search stations by genre or name and play one); shuffle, repeat, eq (preset); history.",
+      "Control music in cliamp: status; play (a song from ~/Music by name, with all: true every song matching it, a folder for all its songs (its path, or its name in ~/Music: an artist's discography), a path, a URL, or a playlist index; nothing resumes), queue, pause, toggle, next, prev, stop; youtube (search YouTube and play the first video, no download; with all: true a whole YouTube playlist: an album, a soundtrack; never guess a YouTube link, and to add one it found without stopping the music, queue its link); remove (a playlist number or part of a title), clear (empty the playlist); volume (a level in dB, -30 to 6, or up/down), seek (seconds, or +30/-10); list the playlist; find songs; radio (search stations by genre or name and play one); shuffle, repeat, eq (preset); history.",
     schema: {
       type: "object",
       properties: {
@@ -272,7 +279,7 @@ export default function (k: Kinoko): void {
         query: { type: "string", description: "play/queue: a song's name, a folder, a path or a URL; find/youtube/radio: what to look for; remove: part of a title" },
         value: { type: "string", description: 'volume ("-10", "up", "down 5"), seek ("90", "+30"), shuffle (on/off), repeat (off/all/one), eq (preset)' },
         index: { type: "number", description: "play/remove: a track of the playlist, by its number in list" },
-        all: { type: "boolean", description: "play/queue: every song in ~/Music matching query, not only the best" },
+        all: { type: "boolean", description: "play/queue: every song in ~/Music matching query, not only the best; youtube: a whole playlist (album, soundtrack)" },
       },
       required: ["action"],
     },

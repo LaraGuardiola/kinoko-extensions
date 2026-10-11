@@ -30,7 +30,11 @@ function fake(running = true): { m: Music; ops: Array<[string, unknown]>; starte
   const m: Music = {
     library,
     log: join(library, "cliamp.log"),
-    youtube: async (q) => (q === "nothing" ? [] : [{ url: `https://yt/${q.includes("gone") ? "gone" : "ok"}`, title: "I Want It That Way", seconds: 220 }, { url: "https://yt/2", title: "Lyrics", seconds: 212 }]),
+    youtube: {
+      videos: async (q) => (q === "nothing" ? [] : [{ url: `https://yt/${q.includes("gone") ? "gone" : "ok"}`, title: "I Want It That Way", seconds: 220 }, { url: "https://yt/2", title: "Lyrics", seconds: 212 }]),
+      playlists: async () => [{ url: "https://www.youtube.com/playlist?list=OST", title: "FighterZ OST", seconds: 0 }, { url: "https://www.youtube.com/playlist?list=B", title: "Other OST", seconds: 0 }],
+      playlist: async () => [{ url: "https://yt/main", title: "Main Theme", seconds: 127 }, { url: "https://yt/lobby", title: "Lobby", seconds: 347 }],
+    },
     start: () => {
       didStart = true;
       up = true;
@@ -109,10 +113,20 @@ describe("cliamp", () => {
     const { m, ops } = fake();
     const out = await music({ action: "youtube", query: "backstreet boys" }, ctx, m);
     expect(ops).toContainEqual(["queue", { path: "https://yt/ok" }]);
-    expect(out).toBe("playing I Want It That Way (3:40) from YouTube\n▶ playing: undefined · vol -10 dB · 3 in the playlist\nalso found (play one with its link):\n  Lyrics (3:32) https://yt/2".replace("undefined", "ok"));
+    expect(out).toBe("playing I Want It That Way (3:40) from YouTube\n▶ playing: undefined · vol -10 dB · 3 in the playlist\nother videos (queue one with its link to add it after, play to switch to it):\n  Lyrics (3:32) https://yt/2".replace("undefined", "ok"));
     writeFileSync(join(library, "cliamp.log"), 'time=1 level=WARN msg="daemon: play \\"https://yt/gone\\": yt-dlp: ERROR: This video is unavailable"\n');
     expect(await music({ action: "youtube", query: "gone" }, ctx, m)).toStartWith('ERROR: music: I Want It That Way (3:40) from YouTube did not start: daemon: play "https://yt/gone": yt-dlp: ERROR: This video is unavailable\n');
     expect(await music({ action: "youtube", query: "nothing" }, ctx, m)).toBe('nothing on YouTube for "nothing"');
+  });
+
+  test("youtube with all: a whole playlist queued in order and the first played; a playlist link queues all of it", async () => {
+    const { m, ops } = fake();
+    const out = await music({ action: "youtube", query: "fighterz ost", all: true }, ctx, m);
+    expect(ops.filter(([op]) => op === "queue" || op === "queue.play").map(([, p]) => p)).toEqual([{ path: "https://yt/main" }, { path: "https://yt/lobby" }, { index: 2 }]);
+    expect(out).toStartWith('playing 2 videos of the YouTube playlist "FighterZ OST"\n▶ playing');
+    expect(out).toEndWith("other playlists (queue one with its link to add it after, play to switch to it):\n  Other OST https://www.youtube.com/playlist?list=B");
+    expect(await music({ action: "queue", query: "https://www.youtube.com/playlist?list=B" }, ctx, m)).toStartWith("queued the YouTube playlist");
+    expect(ops.slice(-2)).toEqual([["queue", { path: "https://yt/main" }], ["queue", { path: "https://yt/lobby" }]]);
   });
 
   test("by name, all: true takes every match; remove by title or number; clear", async () => {
