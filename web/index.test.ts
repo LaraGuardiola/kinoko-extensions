@@ -4,7 +4,7 @@ import install from "./index.ts";
 
 function tools(): Tool[] {
   const list: Tool[] = [];
-  install({ registerTool: (t: Tool) => list.push(t), on: () => undefined, registerCommand: () => undefined, log: () => undefined });
+  install({ registerTool: (t: Tool) => list.push(t), on: () => undefined, registerCommand: () => undefined, registerRenderer: () => undefined, log: () => undefined });
   return list;
 }
 

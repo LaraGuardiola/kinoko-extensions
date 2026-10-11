@@ -48,11 +48,15 @@ export interface ExtHandlers {
 export type ExtEvent = keyof ExtHandlers;
 export type CommandHandler = (args: string) => string | Promise<string>;
 export type ExtensionFactory = (k: Kinoko) => void | Promise<void>;
+/** Draws a fenced block of its language (```mermaid) in the transcript: the rows, each at most
+ *  `width` columns, or undefined to show the source as code. Called with whole blocks only. */
+export type FenceRenderer = (source: string, width: number) => string[] | undefined;
 
 export interface Kinoko {
   on<E extends ExtEvent>(event: E, handler: ExtHandlers[E]): void;
   registerTool(tool: Tool): void;
   registerCommand(name: string, handler: CommandHandler): void;
+  registerRenderer(lang: string, render: FenceRenderer): void;
   log(message: string): void;
 }
 

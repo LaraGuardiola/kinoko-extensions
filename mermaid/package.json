@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-mermaid",
+  "description": "Mermaid diagrams drawn in the terminal: flowcharts, state, sequence and pie",
+  "private": true,
+  "type": "module"
+}
