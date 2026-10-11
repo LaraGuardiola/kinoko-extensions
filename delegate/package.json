@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-delegate",
+  "description": "delegate: hand a task to another coding agent (opencode, pi, Claude Code, Codex, kinoko), in the background by default",
+  "private": true,
+  "type": "module"
+}
