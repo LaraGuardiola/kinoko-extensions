@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-github",
+  "description": "github and github_write through gh: pull requests, issues, CI runs with failed logs cut to the error",
+  "private": true,
+  "type": "module"
+}

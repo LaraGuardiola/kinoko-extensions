@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-notify",
+  "description": "notifications when a long run ends (desktop, phone via ntfy) and a notify tool for the model",
+  "private": true,
+  "type": "module"
+}

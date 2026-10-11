@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-cliamp",
+  "description": "music: control cliamp (play songs from ~/Music by name, radio, queue, volume, seek, eq)",
+  "private": true,
+  "type": "module"
+}
