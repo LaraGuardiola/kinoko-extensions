@@ -2,21 +2,24 @@ import { describe, expect, test } from "bun:test";
 import { Bus } from "../testing/bus.ts";
 import install from "./index.ts";
 
-/** The reason the gate blocks a call, or undefined when it allows it. */
+/** What the gate does with a call: "block: <reason>", "ask: <reason>", or undefined when it allows it. */
 function blocker(): (name: string, args: Record<string, unknown>) => string | undefined {
   const bus = new Bus();
   install(bus);
-  return (name, args) => bus.beforeTool({ name, args, signal: new AbortController().signal })?.reason;
+  return (name, args) => {
+    const decision = bus.beforeTool({ name, args, signal: new AbortController().signal });
+    return decision === undefined ? undefined : `${"block" in decision ? "block" : "ask"}: ${decision.reason}`;
+  };
 }
 
 describe("permission-gate", () => {
-  test("hardline always; gated commands denied unless yolo is set", () => {
+  test("hardline always blocked; gated commands ask unless yolo is set", () => {
     const blocked = blocker();
-    expect(blocked("bash", { cmd: "rm -rf /" })).toContain("hardline");
-    expect(blocked("bash", { cmd: "rm -rf ~/" })).toContain("hardline");
+    expect(blocked("bash", { cmd: "rm -rf /" })).toStartWith("block: hardline");
+    expect(blocked("bash", { cmd: "rm -rf ~/" })).toStartWith("block: hardline");
     expect(blocked("bash", { cmd: "rm -rf / --no-preserve-root" })).toContain("hardline");
-    expect(blocked("bash", { cmd: "sudo rm x" })).toContain("denied by permission-gate");
-    expect(blocked("bash", { cmd: "chmod 777 /tmp/x" })).toContain("denied by permission-gate");
+    expect(blocked("bash", { cmd: "sudo rm x" })).toBe("ask: permission-gate: `sudo` needs your confirmation");
+    expect(blocked("bash", { cmd: "chmod 777 /tmp/x" })).toStartWith("ask: permission-gate");
     expect(blocked("bash", { cmd: "ls -la" })).toBeUndefined();
     expect(blocked("bash", { command: "rm -rf /" })).toContain("hardline");
     expect(blocked("read", { path: "a.txt" })).toBeUndefined();
