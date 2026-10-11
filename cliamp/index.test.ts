@@ -25,10 +25,12 @@ function fake(running = true): { m: Music; ops: Array<[string, unknown]>; starte
     const t = tracks[i];
     state.index = i;
     state.logical_track = { path: t?.path, stream: t?.stream };
-    state.state = t && (t.stream || existsSync(t.path)) ? "playing" : "stopped";
+    state.state = t && (t.path.startsWith("http") ? !t.path.endsWith("gone") : existsSync(t.path)) ? "playing" : "stopped";
   };
   const m: Music = {
     library,
+    log: join(library, "cliamp.log"),
+    youtube: async (q) => (q === "nothing" ? [] : [{ url: `https://yt/${q.includes("gone") ? "gone" : "ok"}`, title: "I Want It That Way", seconds: 220 }, { url: "https://yt/2", title: "Lyrics", seconds: 212 }]),
     start: () => {
       didStart = true;
       up = true;
@@ -41,6 +43,7 @@ function fake(running = true): { m: Music; ops: Array<[string, unknown]>; starte
       ops.push([op, params]);
       if (op === "queue") tracks.push({ path: String(params.path) });
       if (op === "queue.remove") tracks.splice(Number(params.index), 1);
+      if (op === "volume") state.volume = Math.min(6, Number(params.value));
       if (op === "queue.play") at(Number(params.index));
       if (op === "next") at(state.index + 1 < tracks.length ? state.index + 1 : -1);
       if (op === "next" && state.index === -1) Object.assign(state, { index: tracks.length - 1, state: "stopped" });
@@ -73,7 +76,7 @@ describe("cliamp", () => {
     const { m, ops, started } = fake(false);
     const out = await music({ action: "play", query: "glue gun" }, ctx, m);
     expect(started()).toBe(true);
-    expect(ops.filter(([op]) => op !== "queue.list")).toEqual([["queue", { path: join(library, "Fox Stevenson/Glue Gun.mp3") }], ["queue.play", { index: 2 }]]);
+    expect(ops.filter(([op]) => op === "queue" || op === "queue.play")).toEqual([["queue", { path: join(library, "Fox Stevenson/Glue Gun.mp3") }], ["queue.play", { index: 2 }]]);
     expect(out).toStartWith("playing Glue Gun.mp3\n▶ playing:");
   });
 
@@ -82,7 +85,8 @@ describe("cliamp", () => {
     expect(await songsIn(join(library, "Fox Stevenson"))).toEqual([join(library, "Fox Stevenson/Glue Gun.mp3"), join(library, "Fox Stevenson/Killjoy.flac")]);
     const out = await music({ action: "play", query: "fox stevenson" }, ctx, m);
     expect(ops.filter(([op]) => op === "queue" || op === "queue.play").map(([, p]) => p)).toEqual([{ path: join(library, "Fox Stevenson/Glue Gun.mp3") }, { path: join(library, "Fox Stevenson/Killjoy.flac") }, { index: 2 }]);
-    expect(out).toStartWith("playing 2 songs from Fox Stevenson: from 2 to 3 in the playlist\n▶ playing:");
+    expect(out).toStartWith("playing 2 songs from Fox Stevenson\n▶ playing:");
+    expect(await music({ action: "play", query: `${join(library, "Fox Stevenson")}/` }, ctx, m)).toStartWith("playing 2 songs from Fox Stevenson\n");
     // next plays the second; after the last one it says the playlist ended.
     expect(await music({ action: "next" }, ctx, m)).toStartWith("▶ playing:");
     expect(await music({ action: "next" }, ctx, m)).toStartWith("nothing after this one: the playlist ended\n■ stopped");
@@ -99,6 +103,31 @@ describe("cliamp", () => {
     expect(ops).toContainEqual(["queue.remove", { index: 2 }]);
     expect(out).toStartWith("took 1 songs whose files are gone (moved or deleted) out of the playlist\n");
     writeFileSync(join(library, "Other - Glue Factory.ogg"), "");
+  });
+
+  test("youtube: searched, the first played without download; one that does not start says why", async () => {
+    const { m, ops } = fake();
+    const out = await music({ action: "youtube", query: "backstreet boys" }, ctx, m);
+    expect(ops).toContainEqual(["queue", { path: "https://yt/ok" }]);
+    expect(out).toBe("playing I Want It That Way (3:40) from YouTube\n▶ playing: undefined · vol -10 dB · 3 in the playlist\nalso found (play one with its link):\n  Lyrics (3:32) https://yt/2".replace("undefined", "ok"));
+    writeFileSync(join(library, "cliamp.log"), 'time=1 level=WARN msg="daemon: play \\"https://yt/gone\\": yt-dlp: ERROR: This video is unavailable"\n');
+    expect(await music({ action: "youtube", query: "gone" }, ctx, m)).toStartWith('ERROR: music: I Want It That Way (3:40) from YouTube did not start: daemon: play "https://yt/gone": yt-dlp: ERROR: This video is unavailable\n');
+    expect(await music({ action: "youtube", query: "nothing" }, ctx, m)).toBe('nothing on YouTube for "nothing"');
+  });
+
+  test("by name, all: true takes every match; remove by title or number; clear", async () => {
+    const { m, ops } = fake();
+    expect(await music({ action: "queue", query: "glue", all: true }, ctx, m)).toStartWith('queued 2 songs matching "glue"');
+    expect(await music({ action: "play", query: "glue" }, ctx, m)).toContain("also matching (all: true takes every one):");
+    expect(await music({ action: "remove", query: "factory" }, ctx, m)).toStartWith("removed 2. ");
+    expect(await music({ action: "remove", index: 0 }, ctx, m)).toStartWith("removed 0. http://lofi");
+    expect(await music({ action: "remove", query: "toaster" }, ctx, m)).toContain('nothing called "toaster"');
+    expect(await music({ action: "clear" }, ctx, m)).toStartWith("the playlist is empty now");
+    expect(ops.at(-1)?.[0]).toBe("queue.clear");
+  });
+
+  test("volume at cliamp's top points to the system volume", async () => {
+    expect(await music({ action: "volume", value: "9" }, ctx, fake().m)).toStartWith("cliamp is at its maximum (6 dB); louder: the system volume");
   });
 
   test("status when nothing runs does not start cliamp; with it, the state in a line", async () => {

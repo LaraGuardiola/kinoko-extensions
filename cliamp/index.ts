@@ -1,13 +1,16 @@
 // Music through cliamp (the retro terminal player): play, pause, skip, volume, seek, the queue,
-// radio stations, songs from ~/Music by name. Talks to a running cliamp over its IPC API
-// (`cliamp remote call`); when none runs, starts one in the background (`cliamp --daemon`).
+// radio stations, songs and folders from ~/Music, YouTube (searched with yt-dlp, never downloaded).
+// Talks to a running cliamp over its IPC API (`cliamp remote call`); when none runs, starts one in
+// the background (`cliamp --daemon`).
 
-import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Kinoko, ToolContext } from "../api.ts";
+import { findSongs, folderOf, songsIn } from "./library.ts";
+import { clock, searchYouTube } from "./youtube.ts";
+import type { YouTube } from "./youtube.ts";
 
-const AUDIO = /\.(mp3|flac|ogg|opus|m4a|aac|wav|webm|wma|aiff?|mka)$/i;
+export { findSongs, songsIn } from "./library.ts";
 
 export type Cliamp = (args: string[], signal: AbortSignal) => Promise<{ code: number; out: string }>;
 
@@ -31,12 +34,17 @@ export interface Music {
   /** Where songs are looked for by name. */
   library: string;
   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
+  youtube: YouTube;
+  /** cliamp's log: why something did not play is only written there. */
+  log: string;
 }
 
 const defaults: Music = {
   cliamp: runCliamp,
   start: () => void Bun.spawn(["setsid", "-f", "cliamp", "--daemon", "--no-auto-play"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" }),
   library: process.env.XDG_MUSIC_DIR || join(homedir(), "Music"),
+  youtube: searchYouTube,
+  log: join(homedir(), ".config", "cliamp", "cliamp.log"),
   sleep: (ms, signal) => new Promise((done) => {
     const t = setTimeout(done, ms);
     signal.addEventListener("abort", () => (clearTimeout(t), done()), { once: true });
@@ -84,29 +92,6 @@ export function describe(s: Json): string {
   return `${icon} ${state || "stopped"}: ${title}${track.stream ? " (stream)" : ""} · ${extras.filter(Boolean).join(" · ")} · ${str(s.total) || 0} in the playlist`;
 }
 
-/** Songs under the library whose path holds every word of the query. */
-export async function findSongs(library: string, query: string, limit = 10): Promise<string[]> {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const files = (await readdir(library, { recursive: true }).catch(() => [] as string[])).filter((f) => AUDIO.test(f)).slice(0, 20_000);
-  return files.filter((f) => words.every((w) => f.toLowerCase().includes(w))).toSorted((a, b) => a.length - b.length).slice(0, limit).map((f) => join(library, f));
-}
-
-/** Every song in a folder, in order: what playing a folder queues. */
-export async function songsIn(dir: string, limit = 200): Promise<string[]> {
-  const files = (await readdir(dir, { recursive: true }).catch(() => [] as string[])).filter((f) => AUDIO.test(f));
-  return files.toSorted((a, b) => a.localeCompare(b)).slice(0, limit).map((f) => join(dir, f));
-}
-
-const isDir = async (p: string): Promise<boolean> => (await stat(p).catch(() => undefined))?.isDirectory() ?? false;
-
-/** The folder a query names: an absolute path to one, or a folder of the library by its whole name. */
-async function folderOf(library: string, query: string): Promise<string | undefined> {
-  const path = query.replace(/^~(?=\/)/, homedir());
-  if (path.startsWith("/")) return (await isDir(path)) ? path : undefined;
-  const name = (await readdir(library).catch(() => [] as string[])).find((d) => d.toLowerCase() === query.toLowerCase());
-  return name !== undefined && (await isDir(join(library, name))) ? join(library, name) : undefined;
-}
-
 /** Takes the songs whose file is gone (moved, deleted) out of the playlist: cliamp stops on them. */
 async function prune(m: Music, signal: AbortSignal): Promise<string> {
   const { result } = await call(m, "queue.list", { offset: 0, limit: 1000 }, signal);
@@ -121,7 +106,14 @@ async function prune(m: Music, signal: AbortSignal): Promise<string> {
   return gone.length === 0 ? "" : `took ${gone.length} songs whose files are gone (moved or deleted) out of the playlist`;
 }
 
-const ACTIONS = ["status", "play", "pause", "toggle", "next", "prev", "stop", "volume", "seek", "queue", "list", "find", "radio", "shuffle", "repeat", "eq", "history"];
+/** Why cliamp did not play `target`: the last line its log wrote about it. */
+async function whyNot(m: Music, target: string): Promise<string> {
+  const lines = (await Bun.file(m.log).text().catch(() => "")).split("\n").slice(-200);
+  const line = lines.findLast((l) => l.includes(target)) ?? "";
+  return /msg="(.*)"$/.exec(line)?.[1]?.replaceAll('\\"', '"') ?? "";
+}
+
+const ACTIONS = ["status", "play", "pause", "toggle", "next", "prev", "stop", "volume", "seek", "queue", "remove", "clear", "list", "find", "youtube", "radio", "shuffle", "repeat", "eq", "history"];
 
 export async function music(args: Json, ctx: ToolContext, m: Music = defaults): Promise<string> {
   const action = str(args.action);
@@ -138,8 +130,32 @@ export async function music(args: Json, ctx: ToolContext, m: Music = defaults): 
     const starting = action === "play" || action === "queue" || action === "radio";
     if (!(await ensure(m, signal, starting))) return starting ? "ERROR: music: cliamp did not start" : "cliamp is not running (play something to start it)";
     // Moving through the playlist never lands on a song whose file is gone.
-    const pruned = ["play", "queue", "next", "prev", "list"].includes(action) ? await prune(m, signal) : "";
+    const pruned = ["play", "queue", "next", "prev", "list", "remove", "youtube"].includes(action) ? await prune(m, signal) : "";
     const ok = (snapshot: Json, note = ""): string => [pruned, note, describe(snapshot)].filter(Boolean).join("\n");
+
+    // At cliamp's top: louder is the speaker's own (system) volume.
+    const loud = (snapshot: Json): string => ok(snapshot, Number(snapshot.volume) >= 6 ? "cliamp is at its maximum (6 dB); louder: the system volume, bash `pactl set-sink-volume @DEFAULT_SINK@ +10%`" : "");
+    // Appends paths in order and plays the first of them when asked.
+    const addAll = async (paths: string[], play: boolean, label: string): Promise<string> => {
+      let { snapshot } = await call(m, "runtime.snapshot", {}, signal);
+      const first = Number(snapshot.total ?? 0);
+      for (const path of paths) {
+        // oxlint-disable-next-line no-await-in-loop -- appended in order, one after the other
+        ({ snapshot } = await call(m, "queue", { path }, signal));
+      }
+      if (!play) return ok(snapshot, `queued ${label}`);
+      ({ snapshot } = await call(m, "queue.play", { index: first }, signal));
+      // A stream (YouTube) takes a moment to start; one that never does says why in cliamp's log.
+      for (let i = 0; i < 16 && snapshot.state !== "playing" && !signal.aborted; i++) {
+        // oxlint-disable-next-line no-await-in-loop -- waiting for playback, a beat at a time
+        await m.sleep(500, signal);
+        // oxlint-disable-next-line no-await-in-loop -- same wait
+        ({ snapshot } = await call(m, "runtime.snapshot", {}, signal));
+      }
+      if (snapshot.state === "playing") return ok(snapshot, `playing ${label}`);
+      const why = await whyNot(m, paths[0] ?? "");
+      return `ERROR: music: ${label} did not start${why ? `: ${why}` : ""}\n${describe(snapshot)}`;
+    };
 
     switch (action) {
       case "status":
@@ -158,10 +174,10 @@ export async function music(args: Json, ctx: ToolContext, m: Music = defaults): 
       case "volume": {
         // A plain number is the level (dB are mostly negative); up/down or +N change it.
         const change = /^(up|down)(?:\s+(\d+(?:\.\d+)?))?$/i.exec(value);
-        if (change) return ok((await call(m, "volume.adjust", { value: (change[1]?.toLowerCase() === "up" ? 1 : -1) * Number(change[2] ?? 3) }, signal)).snapshot);
-        if (/^\+\d+(\.\d+)?$/.test(value)) return ok((await call(m, "volume.adjust", { value: Number(value) }, signal)).snapshot);
+        if (change) return loud((await call(m, "volume.adjust", { value: (change[1]?.toLowerCase() === "up" ? 1 : -1) * Number(change[2] ?? 3) }, signal)).snapshot);
+        if (/^\+\d+(\.\d+)?$/.test(value)) return loud((await call(m, "volume.adjust", { value: Number(value) }, signal)).snapshot);
         if (!/^-?\d+(\.\d+)?$/.test(value)) return 'ERROR: music: volume needs a level in dB, -30 to 6 ("-10"), or a change ("up", "down 5", "+3")';
-        return ok((await call(m, "volume", { value: Number(value) }, signal)).snapshot);
+        return loud((await call(m, "volume", { value: Number(value) }, signal)).snapshot);
       }
       case "seek": {
         const secs = Number(value.replace(/^\+/, ""));
@@ -202,30 +218,39 @@ export async function music(args: Json, ctx: ToolContext, m: Music = defaults): 
         if (folder) {
           const songs = await songsIn(folder);
           if (songs.length === 0) return `no songs in ${folder}`;
-          let { snapshot } = await call(m, "runtime.snapshot", {}, signal);
-          const first = Number(snapshot.total ?? 0);
-          for (const path of songs) {
-            // oxlint-disable-next-line no-await-in-loop -- appended in order, one after the other
-            ({ snapshot } = await call(m, "queue", { path }, signal));
-          }
-          if (play) ({ snapshot } = await call(m, "queue.play", { index: first }, signal));
-          return ok(snapshot, `${play ? "playing" : "queued"} ${songs.length} songs from ${folder.split("/").at(-1)}: from ${first} to ${first + songs.length - 1} in the playlist`);
+          return addAll(songs, play, `${songs.length} songs from ${folder.replace(/\/+$/, "").split("/").at(-1)}`);
         }
-        // A URL or a path as it is; otherwise a song from the library by name.
-        let target = query;
-        let note = "";
-        if (!/^https?:\/\//.test(query) && !(await Bun.file(query.replace(/^~(?=\/)/, homedir())).exists())) {
-          const songs = await findSongs(m.library, query, 5);
-          if (songs.length === 0) return `nothing in ${m.library} matches "${query}" (radio searches stations)`;
-          target = songs[0] ?? "";
-          if (songs.length > 1) note = `also matching:\n${songs.slice(1).map((s) => `  ${s}`).join("\n")}`;
-        } else target = query.replace(/^~(?=\/)/, homedir());
-        // Appended to the playlist (url.load would start playing even when told not to), then
-        // played by its place when asked.
-        let { snapshot } = await call(m, "queue", { path: target }, signal);
-        if (play) ({ snapshot } = await call(m, "queue.play", { index: Number(snapshot.total ?? 1) - 1 }, signal));
-        return ok(snapshot, `${play ? "playing" : "queued"} ${target.split("/").at(-1)}${note ? `\n${note}` : ""}`);
+        // A URL or a path as it is; otherwise songs from the library by name: the best match, or
+        // with all every one. Appended to the playlist (url.load would start playing even when
+        // told not to), then played by its place when asked.
+        const path = query.replace(/^~(?=\/)/, homedir());
+        if (/^https?:\/\//.test(query) || (await Bun.file(path).exists())) return addAll([path], play, path.split("/").at(-1) ?? path);
+        const songs = await findSongs(m.library, query, args.all === true ? 100 : 5);
+        if (songs.length === 0) return `nothing in ${m.library} matches "${query}" (youtube searches YouTube, radio searches stations)`;
+        if (args.all === true) return addAll(songs, play, `${songs.length} songs matching "${query}"`);
+        const also = songs.length > 1 ? `\nalso matching (all: true takes every one):\n${songs.slice(1).map((s) => `  ${s}`).join("\n")}` : "";
+        return `${await addAll(songs.slice(0, 1), play, songs[0]?.split("/").at(-1) ?? "")}${also}`;
       }
+      case "youtube": {
+        if (!query) return "ERROR: music: youtube needs a query (a song, an artist)";
+        const videos = await m.youtube(query, signal);
+        const [first] = videos;
+        if (!first) return `nothing on YouTube for "${query}"`;
+        const others = videos.slice(1).map((v) => `  ${v.title} (${clock(v.seconds)}) ${v.url}`).join("\n");
+        return `${await addAll([first.url], true, `${first.title} (${clock(first.seconds)}) from YouTube`)}${others ? `\nalso found (play one with its link):\n${others}` : ""}`;
+      }
+      case "remove": {
+        // By its number in list, or the first whose title holds the query.
+        const { result } = await call(m, "queue.list", { offset: 0, limit: 1000 }, signal);
+        const tracks = Array.isArray(result.tracks) ? (result.tracks as Json[]) : [];
+        const name = (t: Json): string => str(t.title) || str(t.path);
+        const index = typeof args.index === "number" ? Math.trunc(args.index) : tracks.findIndex((t) => query !== "" && name(t).toLowerCase().includes(query.toLowerCase()));
+        const track = tracks[index];
+        if (!track) return `ERROR: music: remove needs a playlist number (list) or part of a title${query ? `: nothing called "${query}"` : ""}`;
+        return ok((await call(m, "queue.remove", { index }, signal)).snapshot, `removed ${index}. ${name(track)}`);
+      }
+      case "clear":
+        return ok((await call(m, "queue.clear", {}, signal)).snapshot, "the playlist is empty now");
       default:
         return `ERROR: music: ${action}`;
     }
@@ -239,14 +264,15 @@ export default function (k: Kinoko): void {
   k.registerTool({
     name: "music",
     description:
-      "Control music in cliamp: status; play (a song from ~/Music by name, a folder for all its songs (its path, or its name in ~/Music: an artist's discography), a path, a URL, or a playlist index; nothing resumes), queue, pause, toggle, next, prev, stop; volume (a level in dB, -30 to 6, or up/down), seek (seconds, or +30/-10); list the playlist; find songs; radio (search stations by genre or name and play one); shuffle, repeat, eq (preset); history.",
+      "Control music in cliamp: status; play (a song from ~/Music by name, with all: true every song matching it, a folder for all its songs (its path, or its name in ~/Music: an artist's discography), a path, a URL, or a playlist index; nothing resumes), queue, pause, toggle, next, prev, stop; youtube (search YouTube and play the first video, no download; never guess a YouTube link); remove (a playlist number or part of a title), clear (empty the playlist); volume (a level in dB, -30 to 6, or up/down), seek (seconds, or +30/-10); list the playlist; find songs; radio (search stations by genre or name and play one); shuffle, repeat, eq (preset); history.",
     schema: {
       type: "object",
       properties: {
         action: { type: "string", enum: ACTIONS },
-        query: { type: "string", description: "play/queue: a song's name, a folder, a path or a URL; find/radio: what to look for" },
+        query: { type: "string", description: "play/queue: a song's name, a folder, a path or a URL; find/youtube/radio: what to look for; remove: part of a title" },
         value: { type: "string", description: 'volume ("-10", "up", "down 5"), seek ("90", "+30"), shuffle (on/off), repeat (off/all/one), eq (preset)' },
-        index: { type: "number", description: "play: a track of the playlist, by its number in list" },
+        index: { type: "number", description: "play/remove: a track of the playlist, by its number in list" },
+        all: { type: "boolean", description: "play/queue: every song in ~/Music matching query, not only the best" },
       },
       required: ["action"],
     },
