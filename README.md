@@ -6,6 +6,7 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 |---|---|
 | `check-early` | After 4 source files written with no build, typecheck, lint or test in between, asks the model to run one. |
 | `cliamp` | `music`: controls [cliamp](https://github.com/bjarneo/cliamp): play songs from `~/Music` by name, paths or URLs, radio stations by genre, queue, volume, seek, shuffle, EQ. Starts cliamp in the background when it is not running. |
+| `delegate` | Hands a task to another coding agent (opencode, pi, Claude Code, Codex, another kinoko: the installed ones), run without its UI in the project as a background job: watch it under ⚙ shells; kinoko is woken with its answer. `~/.kinoko/delegate.json` adds more. Needs a kinoko with background jobs. |
 | `github` | `github` (read-only) and `github_write` through `gh`: pull requests with checks, reviews and diffs, issues, CI runs, and a failed run's log cut to the error. Comments, new issues and PRs on the write side. |
 | `herdr` | Inside [herdr](https://herdr.dev), reports kinoko as an agent: herdr's sidebar shows it, and Flux for Android gets **Live**, the pane sized to the phone. |
 | `mermaid` | ```` ```mermaid ```` blocks drawn in the terminal: flowcharts (subgraphs framed), state diagrams, sequence diagrams, pie charts. Fits the width: redraws top-down, then lists the edges. Needs a kinoko with `registerRenderer`. |
