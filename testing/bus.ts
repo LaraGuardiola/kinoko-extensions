@@ -1,8 +1,8 @@
 // A stand-in for kinoko's extension host, for the tests: the same calls an extension makes
-// (on, registerTool, registerCommand, log) and the same way kinoko fires events back. Handlers
+// (on, registerTool, registerCommand, registerRenderer, log) and the same way kinoko fires events back. Handlers
 // that throw are skipped, as in kinoko.
 
-import type { CommandHandler, ExtEvent, ExtHandlers, Kinoko, Tool, ToolCallBlock, ToolCallEvent } from "../api.ts";
+import type { CommandHandler, ExtEvent, ExtHandlers, FenceRenderer, Kinoko, Tool, ToolCallBlock, ToolCallEvent } from "../api.ts";
 
 type AnyHandler = (arg: never) => unknown;
 
@@ -10,6 +10,7 @@ export class Bus implements Kinoko {
   #handlers = new Map<ExtEvent, AnyHandler[]>();
   #tools: Tool[] = [];
   #commands = new Map<string, CommandHandler>();
+  #renderers = new Map<string, FenceRenderer>();
   logs: string[] = [];
 
   on<E extends ExtEvent>(event: E, handler: ExtHandlers[E]): void {
@@ -22,6 +23,14 @@ export class Bus implements Kinoko {
 
   registerCommand(name: string, handler: CommandHandler): void {
     this.#commands.set(name, handler);
+  }
+
+  registerRenderer(lang: string, render: FenceRenderer): void {
+    this.#renderers.set(lang, render);
+  }
+
+  renderer(lang: string): FenceRenderer | undefined {
+    return this.#renderers.get(lang);
   }
 
   log(message: string): void {
