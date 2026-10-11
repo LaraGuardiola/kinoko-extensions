@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-vision",
+  "description": "view and screenshot: the model looks at pictures, videos (frames, via ffmpeg) and the screen",
+  "private": true,
+  "type": "module"
+}

@@ -9,6 +9,7 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 | `mermaid` | ```` ```mermaid ```` blocks drawn in the terminal: flowcharts (subgraphs framed), state diagrams, sequence diagrams, pie charts. Fits the width: redraws top-down, then lists the edges. Needs a kinoko with `registerRenderer`. |
 | `permission-gate` | Blocks dangerous shell commands: a hardline nothing opens (`rm -rf /`, mkfs...), a gate for `sudo`, `rm -rf`, `chmod 777`... that `KINOKO_YOLO=1` opens. |
 | `plan-mode` | Read-only: blocks `write`, `edit` and any bash command that is not plainly read-only. |
+| `vision` | `view` and `screenshot`: the model looks at pictures and videos (any format ffmpeg decodes, scaled; a video as frames spread over it) and at the screen or the focused window. Needs a vision model and a kinoko whose tools can answer with images. |
 | `web` | `web_search` and `web_fetch`, no key needed: Bing's feed, then Bing's page, DuckDuckGo, Marginalia (your `SEARXNG_URL` or `BRAVE_API_KEY` first when set); pages as markdown with links and code blocks. |
 
 ## Install
