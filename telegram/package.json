@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-telegram",
+  "description": "a telegram_send tool: the model sends you files in the Telegram chat paired in /integrations",
+  "private": true,
+  "type": "module"
+}
