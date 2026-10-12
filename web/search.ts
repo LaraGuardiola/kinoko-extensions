@@ -1,9 +1,10 @@
-// web_search's engines, tried in order until one answers with results. With a key or a server of
-// your own they come first (SEARXNG_URL, BRAVE_API_KEY: real APIs, never blocked); then the ones
-// that need nothing: Bing's RSS feed (plain XML, rarely blocked), Bing's page, DuckDuckGo's page,
-// Marginalia's public API. One that turns kinoko away (429, a bot check) rests a few minutes.
+// web_search: the engines (engines.ts) asked in turn until one answers with results worth reading.
+// A scraped page's hits must share words with the query: Bing once answered a football question
+// with a porn site. One that turns kinoko away (a bot check, a spent quota, a bad key) rests.
 
-import { decodeEntities, inline } from "./html.ts";
+import type { Engine, Query } from "./engines.ts";
+import { engines, readConfig } from "./engines.ts";
+import type { Hit } from "./parsers.ts";
 
 export const UA = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
 /** A web server that never answers must not hold the run; Esc still cuts it sooner. */
@@ -14,130 +15,26 @@ const ENGINE_MS = 8_000;
 const SNIPPET_CHARS = 300;
 /** How long an engine that turned kinoko away is left alone. */
 const REST_MS = 10 * 60_000;
+/** Turned away: a bot check (202), refused (401, 403), out of quota (429; Tavily's plan limit, 432). */
+const REFUSED = new Set([202, 401, 403, 429, 432]);
 
-export interface Hit {
-  title: string;
-  url: string;
-  snippet: string;
+/** Words too common to say whether a page is about the query. */
+const COMMON = new Set("the and for with what who how why when where are was were from this that your you not but can".split(" ").concat("que los las del una por con para como cual donde cuando".split(" ")));
+
+const fold = (text: string): string => text.toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
+
+/** The query's telling words: three letters or more, not the commonest, no search operators. */
+export function words(q: string): string[] {
+  const plain = fold(q).replace(/\b(site|inurl|intitle|filetype):\S+/g, " ");
+  return [...new Set(plain.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !COMMON.has(w)))];
 }
 
-export interface Query {
-  q: string;
-  max: number;
-  /** A market like "es-ES"; engines that know regions use it. */
-  region?: string;
-}
-
-export interface Engine {
-  name: string;
-  request: (query: Query) => { url: string; headers?: Record<string, string> };
-  parse: (body: string) => Hit[];
-}
-
-const enc = encodeURIComponent;
-
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-}
-
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-/** JSON results: an array somewhere in the body, each with a URL, a title and a snippet field. */
-function jsonHits(body: string, list: (data: Record<string, unknown>) => unknown, snippet: string): Hit[] {
-  try {
-    const items = list(record(JSON.parse(body)));
-    if (!Array.isArray(items)) return [];
-    return items
-      .map((raw) => record(raw))
-      .map((r) => ({ title: inline(str(r.title)), url: str(r.url), snippet: inline(str(r[snippet])) }))
-      .filter((h) => /^https?:\/\//.test(h.url));
-  } catch {
-    return [];
-  }
-}
-
-/** Bing's RSS: <item><title/><link/><description/></item>, the real URLs, no redirects. */
-export function parseBingRss(xml: string): Hit[] {
-  const hits: Hit[] = [];
-  for (const item of xml.split("<item>").slice(1)) {
-    const field = (tag: string): string => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(item)?.[1] ?? "";
-    const url = decodeEntities(field("link"));
-    if (/^https?:\/\//.test(url)) hits.push({ title: inline(field("title")), url, snippet: inline(field("description")) });
-  }
-  return hits;
-}
-
-/** Bing's page: links go through /ck/a?...&u=a1<base64url of the real URL>. */
-export function parseBing(html: string): Hit[] {
-  const hits: Hit[] = [];
-  for (const raw of html.split('<li class="b_algo"').slice(1)) {
-    const block = raw.slice(0, raw.indexOf("</li>"));
-    const link = /<h2[^>]*>\s*<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/.exec(block);
-    if (!link) continue;
-    const href = decodeEntities(link[1] ?? "");
-    const encoded = /[?&]u=a1([^&]+)/.exec(href)?.[1];
-    const url = encoded ? Buffer.from(encoded, "base64url").toString() : href;
-    const snippet = /<p[^>]*class="[^"]*b_lineclamp[^"]*"[^>]*>([\s\S]*?)<\/p>/.exec(block)?.[1] ?? "";
-    if (/^https?:\/\//.test(url)) hits.push({ title: inline(link[2] ?? ""), url, snippet: inline(snippet) });
-  }
-  return hits;
-}
-
-/** DuckDuckGo's HTML results: links go through its /l/?uddg= redirect, which holds the real URL. */
-export function parseDuckDuckGo(html: string): Hit[] {
-  const hits: Hit[] = [];
-  for (const block of html.split(/class="result results_links/).slice(1)) {
-    if (block.includes("result--ad")) continue;
-    const link = /class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/.exec(block);
-    if (!link) continue;
-    const href = decodeEntities(link[1] ?? "");
-    const real = /[?&]uddg=([^&]+)/.exec(href)?.[1];
-    const url = real ? decodeURIComponent(real) : href.startsWith("//") ? `https:${href}` : href;
-    const snippet = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/.exec(block)?.[1] ?? "";
-    if (/^https?:\/\//.test(url)) hits.push({ title: inline(link[2] ?? ""), url, snippet: inline(snippet) });
-  }
-  return hits;
-}
-
-export const parseSearxng = (body: string): Hit[] => jsonHits(body, (d) => d.results, "content");
-export const parseBraveApi = (body: string): Hit[] => jsonHits(body, (d) => record(d.web).results, "description");
-/** Marginalia sends no title for some pages: the URL stands in. */
-export const parseMarginalia = (body: string): Hit[] => jsonHits(body, (d) => d.results, "description").map((h) => ({ title: h.title || h.url, url: h.url, snippet: h.snippet }));
-
-/** Bing's market. Without one Bing follows the IP's country: English queries came back half in Spanish. */
-const mkt = (region?: string): string => enc(region ?? "en-US");
-
-/** The engines for this environment, in the order they are tried. */
-export function engines(env: Record<string, string | undefined> = process.env): Engine[] {
-  const list: Engine[] = [];
-  const searx = env.SEARXNG_URL?.replace(/\/+$/, "");
-  if (searx) {
-    list.push({
-      name: "searxng",
-      request: ({ q, region }) => ({ url: `${searx}/search?format=json&q=${enc(q)}${region ? `&language=${enc(region)}` : ""}` }),
-      parse: parseSearxng,
-    });
-  }
-  const brave = env.BRAVE_API_KEY;
-  if (brave) {
-    list.push({
-      name: "brave",
-      request: ({ q, max, region }) => ({
-        url: `https://api.search.brave.com/res/v1/web/search?q=${enc(q)}&count=${Math.min(max, 20)}${region?.includes("-") ? `&country=${enc(region.split("-")[1] ?? "")}` : ""}`,
-        headers: { accept: "application/json", "x-subscription-token": brave },
-      }),
-      parse: parseBraveApi,
-    });
-  }
-  list.push(
-    { name: "bing", request: ({ q, region }) => ({ url: `https://www.bing.com/search?format=rss&q=${enc(q)}&mkt=${mkt(region)}` }), parse: parseBingRss },
-    { name: "bing-page", request: ({ q, region }) => ({ url: `https://www.bing.com/search?q=${enc(q)}&mkt=${mkt(region)}` }), parse: parseBing },
-    { name: "duckduckgo", request: ({ q }) => ({ url: `https://html.duckduckgo.com/html/?q=${enc(q)}` }), parse: parseDuckDuckGo },
-    { name: "marginalia", request: ({ q, max }) => ({ url: `https://api.marginalia.nu/public/search/${enc(q)}?count=${Math.min(max, 20)}` }), parse: parseMarginalia },
-  );
-  return list;
+/** A hit is about the query when it carries its words: one for a short query, two for a longer one. */
+export function relevant(hit: Hit, telling: string[]): boolean {
+  if (telling.length === 0) return true;
+  const text = fold(`${hit.title} ${hit.snippet} ${hit.url}`);
+  const found = telling.filter((w) => text.includes(w)).length;
+  return found >= (telling.length >= 3 ? 2 : 1);
 }
 
 /** Engines resting after turning kinoko away: name → when they may be asked again. */
@@ -152,37 +49,6 @@ function format(hits: Hit[], engine: string): string {
   return `${rows.join("\n")}\n\n(via ${engine}; read a result with web_fetch)`;
 }
 
-/** The first engine that answers with results wins. A refusal (429, 403, a 202 bot check) rests
- *  that engine; when every engine rests, all are tried anyway. */
-export async function search(query: Query, signal: AbortSignal, list = engines(), now = Date.now): Promise<string> {
-  const awake = list.filter((e) => (resting.get(e.name) ?? 0) <= now());
-  const order = awake.length > 0 ? awake : list;
-  const failures: string[] = [];
-  for (const engine of order) {
-    try {
-      const { url, headers } = engine.request(query);
-      // oxlint-disable-next-line no-await-in-loop -- engines are a fallback chain, one at a time by design
-      const res = await fetch(url, {
-        headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9", accept: "text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8", ...headers },
-        signal: AbortSignal.any([signal, AbortSignal.timeout(ENGINE_MS)]),
-      });
-      // oxlint-disable-next-line no-await-in-loop -- same chain: the body of the engine just asked
-      const body = await res.text();
-      const hits = res.status === 200 ? dedupe(engine.parse(body)).slice(0, query.max) : [];
-      if (hits.length > 0) {
-        resting.delete(engine.name);
-        return format(hits, engine.name);
-      }
-      if ([202, 403, 429].includes(res.status)) resting.set(engine.name, now() + REST_MS);
-      failures.push(`${engine.name}: ${res.status === 200 ? "no results" : `HTTP ${res.status}`}`);
-    } catch (e) {
-      if (signal.aborted) throw e;
-      failures.push(`${engine.name}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-  return `ERROR: web_search found nothing (${failures.join("; ")}). Try other words, or web_fetch a known URL.`;
-}
-
 /** The same page listed twice (with and without a trailing slash, say) shows once. */
 function dedupe(hits: Hit[]): Hit[] {
   const seen = new Set<string>();
@@ -192,6 +58,52 @@ function dedupe(hits: Hit[]): Hit[] {
     seen.add(key);
     return true;
   });
+}
+
+/** Why an engine gave nothing, for the error the model reads. */
+function why(status: number, parsed: number): string {
+  if (status === 200) return parsed > 0 ? "nothing about it" : "no results";
+  if (status === 401) return "HTTP 401 (its key was refused)";
+  if (status === 429) return "HTTP 429 (too many searches for now)";
+  if (status === 432) return "HTTP 432 (out of quota for now)";
+  return `HTTP ${status}`;
+}
+
+/** The first engine that answers with results worth reading wins. When every engine rests, all are
+ *  tried anyway. Without a list, the engines set up now (environment, ~/.kinoko/web.json). */
+export async function search(query: Query, signal: AbortSignal, list?: Engine[], now = Date.now): Promise<string> {
+  const chain = list ?? engines(process.env, await readConfig());
+  const awake = chain.filter((e) => (resting.get(e.name) ?? 0) <= now());
+  const telling = words(query.q);
+  const failures: string[] = [];
+  for (const engine of awake.length > 0 ? awake : chain) {
+    try {
+      const { url, method, body: payload, headers } = engine.request(query);
+      // oxlint-disable-next-line no-await-in-loop -- engines are a fallback chain, one at a time by design
+      const res = await fetch(url, {
+        method: method ?? "GET",
+        ...(payload === undefined ? {} : { body: payload }),
+        headers: { "user-agent": UA, "accept-language": "en-US,en;q=0.9", accept: "text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8", ...headers },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(ENGINE_MS)]),
+      });
+      // oxlint-disable-next-line no-await-in-loop -- same chain: the body of the engine just asked
+      const body = await res.text();
+      const all = res.status === 200 ? dedupe(engine.parse(body, query)) : [];
+      const hits = (engine.scraped ? all.filter((h) => relevant(h, telling)) : all).slice(0, query.max);
+      if (hits.length > 0) {
+        resting.delete(engine.name);
+        return format(hits, engine.name);
+      }
+      if (REFUSED.has(res.status)) resting.set(engine.name, now() + REST_MS);
+      failures.push(`${engine.name}: ${why(res.status, all.length)}`);
+    } catch (e) {
+      if (signal.aborted) throw e;
+      failures.push(`${engine.name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  // Only the engines that need nothing, and they all failed: say what would fix it for good.
+  const setUp = chain.some((e) => !e.scraped) ? "" : " Search pages turn kinoko away after a few searches: tell the user that /searxng sets up their own SearXNG (free, no account), which makes web search reliable.";
+  return `ERROR: web_search found nothing (${failures.join("; ")}). Try other words, or web_fetch a known URL.${setUp}`;
 }
 
 /** Forgets which engines rest (tests). */

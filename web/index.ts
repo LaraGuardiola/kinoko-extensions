@@ -1,16 +1,22 @@
 // Web: lets the agent look things up. Two read-only tools, no dependency, no key needed.
-//   web_search  asks search engines in turn until one answers (search.ts): your SearXNG or Brave
-//               API key first when set, then Bing's RSS and page, DuckDuckGo, Marginalia.
+//   web_search  asks search engines in turn until one answers (search.ts, engines.ts): Tavily, Exa or
+//               your SearXNG first when set up (free), then Brave's, DuckDuckGo's and Bing's pages,
+//               Wikipedia last.
+//   /searxng    sets up your own SearXNG in Docker, the search that is never turned away (searxng.ts).
 //   web_fetch   downloads one page and turns it into readable text, paged like `read` (page.ts).
 
 import type { Kinoko, ToolContext } from "../api.ts";
 import { PAGE_CHARS, fetchPage } from "./page.ts";
+import { searxng } from "./searxng.ts";
 import { search } from "./search.ts";
 
 export { decodeEntities, htmlToText } from "./html.ts";
 export { fetchPage, rewrite } from "./page.ts";
-export { engines, parseBing, parseBingRss, parseBraveApi, parseDuckDuckGo, parseMarginalia, parseSearxng, search, wake } from "./search.ts";
-export type { Engine, Hit, Query } from "./search.ts";
+export { engines, readConfig } from "./engines.ts";
+export type { Engine, Query, WebConfig } from "./engines.ts";
+export { parseBing, parseBraveApi, parseBravePage, parseDuckDuckGo, parseExa, parseSearxng, parseTavily, parseWikipedia } from "./parsers.ts";
+export type { Hit } from "./parsers.ts";
+export { relevant, search, wake, words } from "./search.ts";
 
 const MAX_RESULTS = 8;
 
@@ -19,6 +25,8 @@ function count(raw: unknown, fallback: number, max: number): number {
 }
 
 export default function (k: Kinoko): void {
+  k.registerCommand("searxng", (args) => searxng(args), "Your own SearXNG for web_search: status, setup, use <url>, remove");
+
   k.registerTool({
     name: "web_search",
     description: "Search the web. Returns numbered results: title, URL, snippet. Read one with web_fetch.",

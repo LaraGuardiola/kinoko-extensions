@@ -63,7 +63,8 @@ export type FenceRenderer = (source: string, width: number) => string[] | undefi
 export interface Kinoko {
   on<E extends ExtEvent>(event: E, handler: ExtHandlers[E]): void;
   registerTool(tool: Tool): void;
-  registerCommand(name: string, handler: CommandHandler): void;
+  /** `/name args` in the TUI (listed in its slash menu with `description`), and `kinoko /name args`. */
+  registerCommand(name: string, handler: CommandHandler, description?: string): void;
   registerRenderer(lang: string, render: FenceRenderer): void;
   log(message: string): void;
 }

@@ -15,7 +15,7 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 | `plan-mode` | Read-only: blocks `write`, `edit` and any bash command that is not plainly read-only. |
 | `telegram` | `telegram_send`: the model sends you a file in the Telegram chat paired in kinoko's `/integrations` ("send me the report on Telegram"), up to 50 MB, as it is. |
 | `vision` | `view` and `screenshot`: the model looks at pictures and videos (any format ffmpeg decodes, scaled; a video as frames spread over it) and at the screen or the focused window. Needs a vision model and a kinoko whose tools can answer with images. |
-| `web` | `web_search` and `web_fetch`, no key needed: Bing's feed, then Bing's page, DuckDuckGo, Marginalia (your `SEARXNG_URL` or `BRAVE_API_KEY` first when set); pages as markdown with links and code blocks. |
+| `web` | `web_search` and `web_fetch`. Searches with Tavily, Exa or your own SearXNG when set up (all free, see below), else Brave's, DuckDuckGo's and Bing's pages and Wikipedia; scraped results must be about the query. Pages as markdown with links and code blocks. |
 
 ## Install
 
@@ -25,6 +25,30 @@ Del twice removes it. Either is in effect at once, no restart.
 
 By hand: copy a folder to `~/.kinoko/ext/<name>/` (or `./.kinoko/ext/<name>/` for one project),
 then run `bun install` in it when its `package.json` has dependencies.
+
+## Web search that does not give up
+
+Without a key, `web_search` reads search engines' pages, and they turn scripts away after a few
+searches in a row. Any of these makes it reliable, and is tried first, in this order (SearXNG
+needs no account at all):
+
+- **Tavily** (1,000 searches a month; it may ask for a card): sign up at [tavily.com](https://tavily.com), copy the key.
+- **Exa** (free credits to start): sign up at [exa.ai](https://exa.ai), copy the key.
+- **SearXNG**, your own (no key, no limit), in Docker or Podman on this computer: in kinoko,
+  `/searxng setup`. It writes its settings (`~/.kinoko/searxng`, JSON format on), starts the container
+  (or, when Docker refuses your user, gives you the one `!sudo sh ...` line to paste; Podman never
+  needs sudo) and tells web_search. With nothing to run it, it says what to install on your system.
+  `/searxng` says where it stands, `/searxng use <url>` takes one you already run, `/searxng remove`
+  undoes it.
+
+Keys go in `~/.kinoko/web.json` (`chmod 600` it), only the ones you have:
+
+```json
+{ "tavily": "tvly-...", "exa": "...", "searxng": "http://127.0.0.1:8888" }
+```
+
+or in the environment (`TAVILY_API_KEY`, `EXA_API_KEY`, `SEARXNG_URL`; `BRAVE_API_KEY` works too).
+It is read on every search: no restart.
 
 ## Write one
 
