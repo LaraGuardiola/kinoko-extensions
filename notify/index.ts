@@ -1,4 +1,4 @@
-// Notifications: when a run that took a while ends, kinoko says so, on the desktop (notify-send,
+// Notifications: when a run that took a while ends, kinoko says so, on the desktop (Linux notify-send,
 // macOS's osascript) and, with a topic set, on the phone through ntfy (https://ntfy.sh). Not when
 // you are looking: on Hyprland, a run that ends while kinoko's own window has focus stays quiet.
 // The model gets a `notify` tool too, to ping you on purpose ("tell me when the tests pass").
@@ -47,7 +47,8 @@ async function ancestors(pid: number): Promise<number[]> {
 export const channels = (env: Env = process.env): Channels => ({
   desktop: async (title, body) => {
     if (process.platform === "darwin") await spawn(["osascript", "-e", `display notification ${JSON.stringify(body)} with title ${JSON.stringify(title)}`]);
-    else await spawn(["notify-send", "-a", "kinoko", title, body]);
+    // Linux's notify-send where it is installed; elsewhere (Windows) only ntfy reaches you.
+    else if (Bun.which("notify-send") !== null) await spawn(["notify-send", "-a", "kinoko", title, body]);
   },
   ntfy: async (url, title, body) => {
     await fetch(url, { method: "POST", body, headers: { title, tags: "mushroom" }, signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => undefined);
