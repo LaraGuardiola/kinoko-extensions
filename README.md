@@ -5,7 +5,7 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 | Extension | What it does |
 |---|---|
 | `check-early` | After 4 source files written with no build, typecheck, lint or test in between, asks the model to run one. |
-| `cliamp` | `music`: controls [cliamp](https://github.com/bjarneo/cliamp): play songs from `~/Music` by name, paths or URLs, radio stations by genre, queue, volume, seek, shuffle, EQ. Starts cliamp in the background when it is not running. |
+| `cliamp` | `music`: controls [cliamp](https://github.com/bjarneo/cliamp): songs from `~/Music` by name, a folder or a whole discography, paths or URLs; YouTube searched and streamed, never downloaded (a song, or a whole playlist: an album, a soundtrack; needs [yt-dlp](https://github.com/yt-dlp/yt-dlp)); radio stations by genre; queue, remove, clear, volume, seek, shuffle, EQ. Starts cliamp in the background when it is not running. |
 | `delegate` | Hands a task to another coding agent (opencode, pi, Claude Code, Codex, another kinoko: the installed ones), run without its UI in the project as a background job: watch it under ⚙ shells; kinoko is woken with its answer. `~/.kinoko/delegate.json` adds more. Needs a kinoko with background jobs. |
 | `github` | `github` (read-only) and `github_write` through `gh`: pull requests with checks, reviews and diffs, issues, CI runs, and a failed run's log cut to the error. Comments, new issues and PRs on the write side. |
 | `herdr` | Inside [herdr](https://herdr.dev), reports kinoko as an agent: herdr's sidebar shows it, and Flux for Android gets **Live**, the pane sized to the phone. |
