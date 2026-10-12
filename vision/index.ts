@@ -51,6 +51,8 @@ export default function (k: Kinoko): void {
     },
   });
 
+  // Windows has nothing it can capture with: the model is not offered it there.
+  if (process.platform === "win32") return;
   k.registerTool({
     name: "screenshot",
     description: "Take a screenshot to look at: the whole screen, or the focused window (usually the terminal kinoko runs in).",

@@ -7,4 +7,6 @@
   change it when kinoko's extension API changes.
 - Every async operation honors an AbortSignal; nothing blocks the event loop; a handler never throws
   into kinoko.
+- Works on Linux, macOS and Windows unless its package.json says otherwise (`"os"`); a tool that
+  cannot work somewhere is not registered there.
 - `bun run check` passes with zero warnings before a commit. New extension: add it to README's table.
