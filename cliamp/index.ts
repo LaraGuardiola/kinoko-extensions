@@ -158,8 +158,16 @@ export async function music(args: Json, ctx: ToolContext, m: Music = defaults): 
     };
 
     switch (action) {
-      case "status":
-        return ok((await call(m, "runtime.snapshot", {}, signal)).snapshot);
+      case "status": {
+        // The song after this one too: what a "now and next" needs, without a list of 50.
+        const { snapshot } = await call(m, "runtime.snapshot", {}, signal);
+        const after = Number(snapshot.index) + 1;
+        const index = after < Number(snapshot.total) ? after : str(snapshot.repeat).toLowerCase() === "all" ? 0 : -1;
+        if (snapshot.shuffle || index < 0 || !Number.isInteger(index)) return ok(snapshot);
+        const { result } = await call(m, "queue.list", { offset: index, limit: 1 }, signal);
+        const next = (Array.isArray(result.tracks) ? (result.tracks as Json[]) : [])[0];
+        return next ? `${ok(snapshot)} · next: ${str(next.title) || str(next.path)}` : ok(snapshot);
+      }
       case "next":
       case "prev": {
         const { snapshot } = await call(m, action, {}, signal);
@@ -271,7 +279,7 @@ export default function (k: Kinoko): void {
   k.registerTool({
     name: "music",
     description:
-      "Control music in cliamp: status; play (a song from ~/Music by name, with all: true every song matching it, a folder for all its songs (its path, or its name in ~/Music: an artist's discography), a path, a URL, or a playlist index; nothing resumes), queue, pause, toggle, next, prev, stop; youtube (search YouTube and play the first video, no download; with all: true a whole YouTube playlist: an album, a soundtrack; never guess a YouTube link, and to add one it found without stopping the music, queue its link); remove (a playlist number or part of a title), clear (empty the playlist); volume (a level in dB, -30 to 6, or up/down), seek (seconds, or +30/-10); list the playlist; find songs; radio (search stations by genre or name and play one); shuffle, repeat, eq (preset); history.",
+      "Control music in cliamp: status; play (a song from ~/Music by name, with all: true every song matching it, a folder for all its songs (its path, or its name in ~/Music: an artist's discography), a path, a URL, or a playlist index; nothing resumes), queue, pause, toggle, next, prev, stop; youtube (search YouTube and play the first video, no download; with all: true a whole YouTube playlist: an album, a soundtrack; never guess a YouTube link, and to add one it found without stopping the music, queue its link); remove (a playlist number or part of a title), clear (empty the playlist); volume (a level in dB, -30 to 6, or up/down), seek (seconds, or +30/-10); list the playlist; find songs; radio (search stations by genre or name and play one); shuffle, repeat, eq (preset); history. status says the song playing and the next one. This is a kinoko tool, not a shell command: a background job waiting for the song to change reads `cliamp status` (its `Track:` line) and prints the new one; for anything else, call this tool.",
     schema: {
       type: "object",
       properties: {
