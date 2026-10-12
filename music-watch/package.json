@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-music-watch",
+  "description": "Monitor cliamp for song changes and notify the model when they happen.",
+  "private": true,
+  "type": "module"
+}
