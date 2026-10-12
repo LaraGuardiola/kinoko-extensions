@@ -10,8 +10,10 @@
 
 import type { Kinoko, ToolCallAsk, ToolCallBlock } from "../api.ts";
 
+// rm -r/-f on the root, the home or the current folder, as a whole argument (any of them):
+// `rm -f /tmp/x` or `rm -rf ~/build` are ordinary and only gated.
 const HARDLINE =
-  /\brm\s+(-[a-z]*[rf][a-z]*\s+)+(\/|~|\$HOME|\/\*|\/\.\*|\.\s*$|\/\s*$)|mkfs(\.\w+)?\s|:\(\)\s*\{\s*:\|:&\s*\}\s*;\s*:|>\s*\/dev\/sd[a-z]/i;
+  /\brm\s+(-[a-z]*[rf][a-z]*\s+)+([^;&|\n]*\s)?(\/\*?|\/\.\*|~\/?\*?|"?\$HOME"?\/?\*?|\.)(?=$|[\s;&|)])|mkfs(\.\w+)?\s|:\(\)\s*\{\s*:\|:&\s*\}\s*;\s*:|>\s*\/dev\/sd[a-z]/i;
 
 const GATED: Array<[string, RegExp]> = [
   ["rm -rf", /\brm\s+(-[a-z]*[rf][a-z]*\s+)+/i],
