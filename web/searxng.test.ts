@@ -10,19 +10,22 @@ afterAll(() => rmSync(home, { recursive: true, force: true }));
 const webJson = join(home, ".kinoko", "web.json");
 const saved = async (): Promise<Record<string, unknown>> => (await Bun.file(webJson).json().catch(() => ({}))) as Record<string, unknown>;
 
-/** A computer with Docker in some state, and a SearXNG that answers after `upAfter` looks. */
-function fake(opts: { docker?: string | null; info?: { code: number; out: string }; exists?: boolean; upAfter?: number }): Host & { ran: string[] } {
+/** A computer with Docker (and maybe Podman) in some state, and a SearXNG that answers after `upAfter` looks. */
+function fake(opts: { docker?: boolean; info?: { code: number; out: string }; podman?: boolean; exists?: boolean; upAfter?: number; platform?: NodeJS.Platform; selinux?: boolean }): Host & { ran: string[] } {
   const ran: string[] = [];
   let looks = 0;
+  const installed = { docker: opts.docker ?? true, podman: opts.podman ?? false };
   return {
     ran,
     home,
-    docker: opts.docker === undefined ? "/usr/bin/docker" : opts.docker,
+    platform: opts.platform ?? "linux",
+    selinux: opts.selinux ?? false,
+    which: (program) => (installed[program as keyof typeof installed] ? `/usr/bin/${program}` : null),
     sleep: async () => undefined,
     probe: async (url) => (url === LOCAL && opts.upAfter !== undefined && ++looks > opts.upAfter ? "json" : "nothing answers there"),
     run: async (cmd) => {
       ran.push(cmd.slice(0, 3).join(" "));
-      if (cmd[1] === "info") return opts.info ?? { code: 0, out: "27.0" };
+      if (cmd[1] === "info") return cmd[0] === "docker" ? (opts.info ?? { code: 0, out: "27.0" }) : { code: 0, out: "5.2" };
       if (cmd[1] === "inspect") return opts.exists ? { code: 0, out: "exited" } : { code: 1, out: "no such object" };
       return { code: 0, out: "abc123" };
     },
@@ -40,7 +43,9 @@ describe("/searxng", () => {
     mkdirSync(join(home, ".kinoko"), { recursive: true });
     writeFileSync(webJson, JSON.stringify({ tavily: "tvly-x" }));
     const h = fake({ upAfter: 3 });
-    expect(await searxng("setup", h)).toContain(`SearXNG is ready at ${LOCAL}`);
+    const done = await searxng("setup", h);
+    expect(done).toContain(`SearXNG is ready at ${LOCAL} (docker)`);
+    expect(done).toContain("`!sudo systemctl enable docker`");
     expect(h.ran).toEqual(["docker info --format", "docker inspect -f", "docker run -d"]);
     expect(await saved()).toEqual({ tavily: "tvly-x", searxng: LOCAL });
     expect(statSync(webJson).mode & 0o777).toBe(0o600);
@@ -59,6 +64,7 @@ describe("/searxng", () => {
     const out = await searxng("setup", fake({ info: { code: 1, out: "permission denied while trying to connect to the docker API" } }));
     const script = join(home, ".kinoko", "searxng", "start.sh");
     expect(out).toContain(`!sudo sh ${script}`); // one short line to paste
+    expect(out).toContain("or install Podman");
     const sh = await Bun.file(script).text();
     expect(sh).toContain(dockerRun(home).join(" "));
     expect(sh).toContain("-p 127.0.0.1:8888:8080 -e FORCE_OWNERSHIP=false");
@@ -67,9 +73,32 @@ describe("/searxng", () => {
     expect(await saved()).toEqual({});
   });
 
-  test("setup without Docker, or with it stopped: what to do", async () => {
-    expect(await searxng("setup", fake({ docker: null }))).toContain("Docker is not installed");
-    expect(await searxng("setup", fake({ info: { code: 1, out: "Cannot connect to the Docker daemon" } }))).toContain("not running");
+  test("nothing to run it: what to do, for this system", async () => {
+    const linux = await searxng("setup", fake({ docker: false }));
+    expect(linux).toContain("Neither Docker nor Podman is installed");
+    expect(linux).toContain("`!sudo pacman -S podman`");
+    expect(linux).toContain("/searxng use <url>");
+    const desktop = [await searxng("setup", fake({ docker: false, platform: "darwin" })), await searxng("setup", fake({ docker: false, platform: "win32" }))];
+    for (const out of desktop) {
+      expect(out).toContain("install Docker Desktop (https://www.docker.com/products/docker-desktop/)");
+      expect(out).not.toContain("sudo");
+    }
+    expect(await searxng("setup", fake({ info: { code: 1, out: "Cannot connect to the Docker daemon" } }))).toContain("`!sudo systemctl enable --now docker`");
+    expect(await searxng("setup", fake({ info: { code: 1, out: "Cannot connect" }, platform: "darwin" }))).toContain("start Docker Desktop");
+  });
+
+  test("Podman when Docker cannot: run as the user, no sudo; :Z only with SELinux; how it survives a reboot", async () => {
+    const h = fake({ info: { code: 1, out: "permission denied" }, podman: true, upAfter: 2, selinux: true });
+    const out = await searxng("setup", h);
+    expect(out).toContain(`SearXNG is ready at ${LOCAL} (podman)`);
+    expect(out).toContain("podman-restart.service");
+    expect(h.ran).toEqual(["docker info --format", "podman info --format", "podman inspect -f", "podman run -d"]);
+    expect(dockerRun(home, "podman", true)).toContain(`${join(home, ".kinoko", "searxng")}:/etc/searxng:Z`);
+    expect(dockerRun(home, "podman", false)).toContain(`${join(home, ".kinoko", "searxng")}:/etc/searxng`);
+    expect(dockerRun(home, "docker", true)).toContain(`${join(home, ".kinoko", "searxng")}:/etc/searxng`);
+    // Only Podman installed: the same.
+    const only = fake({ docker: false, podman: true, upAfter: 2 });
+    expect(await searxng("setup", only)).toContain("(podman)");
   });
 
   test("one already answering is just saved; status then says it is ready", async () => {

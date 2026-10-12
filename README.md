@@ -34,9 +34,10 @@ needs no account at all):
 
 - **Tavily** (1,000 searches a month; it may ask for a card): sign up at [tavily.com](https://tavily.com), copy the key.
 - **Exa** (free credits to start): sign up at [exa.ai](https://exa.ai), copy the key.
-- **SearXNG**, your own (no key, no limit), in Docker on this computer: in kinoko, `/searxng setup`. It
-  writes its settings (`~/.kinoko/searxng`, JSON format on), starts the container (or, when Docker
-  refuses your user, gives you the one `!sudo docker run ...` line to paste) and tells web_search.
+- **SearXNG**, your own (no key, no limit), in Docker or Podman on this computer: in kinoko,
+  `/searxng setup`. It writes its settings (`~/.kinoko/searxng`, JSON format on), starts the container
+  (or, when Docker refuses your user, gives you the one `!sudo sh ...` line to paste; Podman never
+  needs sudo) and tells web_search. With nothing to run it, it says what to install on your system.
   `/searxng` says where it stands, `/searxng use <url>` takes one you already run, `/searxng remove`
   undoes it.
 
