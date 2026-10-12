@@ -52,7 +52,11 @@ function fake(running = true): { m: Music; ops: Array<[string, unknown]>; starte
       if (op === "next") at(state.index + 1 < tracks.length ? state.index + 1 : -1);
       if (op === "next" && state.index === -1) Object.assign(state, { index: tracks.length - 1, state: "stopped" });
       state.total = tracks.length;
-      if (op === "queue.list") return { code: 0, out: JSON.stringify({ ok: true, job: { state: "succeeded", result: { tracks }, snapshot: state } }) };
+      if (op === "queue.list") {
+        const from = Number(params.offset ?? 0);
+        const page = tracks.slice(from, from + Number(params.limit ?? 50));
+        return { code: 0, out: JSON.stringify({ ok: true, job: { state: "succeeded", result: { tracks: page }, snapshot: state } }) };
+      }
       if (op === "volume.adjust") state.volume += Number(params.value);
       if (op === "provider.search") return { code: 0, out: JSON.stringify({ ok: true, job: { state: "succeeded", result: { tracks: [{ title: "Jazz FM", path: "http://jazz" }] }, snapshot: state } }) };
       if (op === "runtime.snapshot") return { code: 0, out: JSON.stringify({ ok: true, snapshot: state }) }; // answered at once, no job
@@ -148,7 +152,13 @@ describe("cliamp", () => {
     const off = fake(false);
     expect(await music({ action: "status" }, ctx, off.m)).toBe("cliamp is not running (play something to start it)");
     expect(off.started()).toBe(false);
-    expect(await music({ action: "status" }, ctx, fake().m)).toBe("■ stopped: Lofi Stream (stream) · vol -10 dB · 2 in the playlist");
+    expect(await music({ action: "status" }, ctx, fake().m)).toBe("■ stopped: Lofi Stream (stream) · vol -10 dB · 2 in the playlist · next: http://synth");
+  });
+
+  test("status names no next song after the last one", async () => {
+    const { m } = fake();
+    await music({ action: "play", index: 1 }, ctx, m);
+    expect(await music({ action: "status" }, ctx, m)).not.toContain("next:");
   });
 
   test("volume: a level, or up/down/+N as a change; nonsense is an error", async () => {
