@@ -102,7 +102,7 @@ export async function search(query: Query, signal: AbortSignal, list?: Engine[],
     }
   }
   // Only the engines that need nothing, and they all failed: say what would fix it for good.
-  const setUp = chain.some((e) => !e.scraped) ? "" : " Searching without a key is often turned away: tell the user a free Tavily key (or their own SearXNG) in ~/.kinoko/web.json makes web search reliable.";
+  const setUp = chain.some((e) => !e.scraped) ? "" : " Search pages turn kinoko away after a few searches: tell the user that /searxng sets up their own SearXNG (free, no account), which makes web search reliable.";
   return `ERROR: web_search found nothing (${failures.join("; ")}). Try other words, or web_fetch a known URL.${setUp}`;
 }
 

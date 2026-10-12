@@ -81,8 +81,8 @@ describe("web: the engine chain", () => {
   });
 
   test("all failed with nothing set up: the error says what makes it reliable", async () => {
-    expect(await search({ q: "bun", max: 1 }, signal, [local("page", "/empty", true)])).toEndWith("tell the user a free Tavily key (or their own SearXNG) in ~/.kinoko/web.json makes web search reliable.");
-    expect(await search({ q: "bun", max: 1 }, signal, [local("api", "/empty")])).not.toContain("Tavily");
+    expect(await search({ q: "bun", max: 1 }, signal, [local("page", "/empty", true)])).toEndWith("tell the user that /searxng sets up their own SearXNG (free, no account), which makes web search reliable.");
+    expect(await search({ q: "bun", max: 1 }, signal, [local("api", "/empty")])).not.toContain("/searxng");
   });
 
   test("Esc cuts a slow engine at once: the abort reaches the caller", async () => {

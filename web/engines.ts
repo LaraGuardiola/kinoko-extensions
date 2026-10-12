@@ -1,5 +1,5 @@
-// web_search's engines, in the order they are tried. First the ones you set up, all free: Tavily and
-// Exa (an API key from their sites, no card) and your own SearXNG (no key, no limit); a Brave API key
+// web_search's engines, in the order they are tried. First the ones you set up: Tavily and Exa (an
+// API key from their sites) and your own SearXNG (/searxng: no account, no limit); a Brave API key
 // still works. Then the ones that need nothing: Brave's results page, DuckDuckGo's, Bing's, and
 // Wikipedia's search last. Without a key they turn kinoko away after a few searches in a row.
 // Keys come from the environment or ~/.kinoko/web.json, read on every search: no restart.

@@ -29,16 +29,18 @@ then run `bun install` in it when its `package.json` has dependencies.
 ## Web search that does not give up
 
 Without a key, `web_search` reads search engines' pages, and they turn scripts away after a few
-searches in a row. Any of these makes it reliable; they are free, and tried first in this order:
+searches in a row. Any of these makes it reliable, and is tried first, in this order (SearXNG
+needs no account at all):
 
-- **Tavily** (1,000 searches a month, no card): sign up at [tavily.com](https://tavily.com), copy the key.
-- **Exa** (free credits, no card): sign up at [exa.ai](https://exa.ai), copy the key.
-- **SearXNG**, your own (no key, no limit), with Docker:
-  `docker run -d --name searxng --restart unless-stopped -p 127.0.0.1:8888:8080 -v ~/.config/searxng:/etc/searxng searxng/searxng`,
-  then in `~/.config/searxng/settings.yml` add `json` to `search: formats:` (`formats: [html, json]`)
-  and `docker restart searxng`.
+- **Tavily** (1,000 searches a month; it may ask for a card): sign up at [tavily.com](https://tavily.com), copy the key.
+- **Exa** (free credits to start): sign up at [exa.ai](https://exa.ai), copy the key.
+- **SearXNG**, your own (no key, no limit), in Docker on this computer: in kinoko, `/searxng setup`. It
+  writes its settings (`~/.kinoko/searxng`, JSON format on), starts the container (or, when Docker
+  refuses your user, gives you the one `!sudo docker run ...` line to paste) and tells web_search.
+  `/searxng` says where it stands, `/searxng use <url>` takes one you already run, `/searxng remove`
+  undoes it.
 
-Put them in `~/.kinoko/web.json` (`chmod 600` it), only the ones you have:
+Keys go in `~/.kinoko/web.json` (`chmod 600` it), only the ones you have:
 
 ```json
 { "tavily": "tvly-...", "exa": "...", "searxng": "http://127.0.0.1:8888" }
