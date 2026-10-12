@@ -25,6 +25,18 @@ describe("permission-gate", () => {
     expect(blocked("read", { path: "a.txt" })).toBeUndefined();
   });
 
+  test("the hardline is the root, the home or the folder itself, not any absolute path", () => {
+    const blocked = blocker();
+    for (const cmd of ["rm -rf /*", "rm -rf ~", "rm -rf $HOME", 'rm -rf "$HOME"/', "rm -rf .", "rm -r -f /", "rm -rf -- /", "rm -rf build /", "cd x && rm -rf . && ls"]) {
+      expect(blocked("bash", { cmd })).toStartWith("block: hardline");
+    }
+    // A watcher script from a real session: its `rm -f /tmp/...` was refused as if it were `rm -rf /`.
+    const script = "while true; do\n  if [ -f /tmp/changed.txt ]; then\n    rm -f /tmp/changed.txt\n  fi\n  sleep 5\ndone";
+    for (const cmd of ["rm -f /tmp/x", "rm -rf ~/build", "rm -rf $HOME/.cache/x", "rm -rf ./dist", "rm -f /tmp/a /tmp/b", script]) {
+      expect(blocked("bash", { cmd })).toBe("ask: permission-gate: `rm -rf` needs your confirmation");
+    }
+  });
+
   test("KINOKO_YOLO=1 opens the gate, never the hardline", async () => {
     process.env.KINOKO_YOLO = "1";
     try {
