@@ -1,6 +1,7 @@
 // Web: lets the agent look things up. Two read-only tools, no dependency, no key needed.
-//   web_search  asks search engines in turn until one answers (search.ts): your SearXNG or Brave
-//               API key first when set, then Bing's RSS and page, DuckDuckGo, Marginalia.
+//   web_search  asks search engines in turn until one answers (search.ts, engines.ts): Tavily, Exa or
+//               your SearXNG first when set up (free), then Brave's, DuckDuckGo's and Bing's pages,
+//               Wikipedia last.
 //   web_fetch   downloads one page and turns it into readable text, paged like `read` (page.ts).
 
 import type { Kinoko, ToolContext } from "../api.ts";
@@ -9,8 +10,11 @@ import { search } from "./search.ts";
 
 export { decodeEntities, htmlToText } from "./html.ts";
 export { fetchPage, rewrite } from "./page.ts";
-export { engines, parseBing, parseBingRss, parseBraveApi, parseDuckDuckGo, parseMarginalia, parseSearxng, search, wake } from "./search.ts";
-export type { Engine, Hit, Query } from "./search.ts";
+export { engines, readConfig } from "./engines.ts";
+export type { Engine, Query, WebConfig } from "./engines.ts";
+export { parseBing, parseBraveApi, parseBravePage, parseDuckDuckGo, parseExa, parseSearxng, parseTavily, parseWikipedia } from "./parsers.ts";
+export type { Hit } from "./parsers.ts";
+export { relevant, search, wake, words } from "./search.ts";
 
 const MAX_RESULTS = 8;
 

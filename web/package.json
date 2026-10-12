@@ -1,6 +1,6 @@
 {
   "name": "kinoko-ext-web",
-  "description": "web_search and web_fetch: no key needed (Bing, DuckDuckGo, Marginalia; SearXNG or Brave API when set), pages as markdown",
+  "description": "web_search and web_fetch: Tavily, Exa or your SearXNG when set up (free), else Brave, DuckDuckGo, Bing and Wikipedia; pages as markdown",
   "private": true,
   "type": "module"
 }

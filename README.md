@@ -15,7 +15,7 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 | `plan-mode` | Read-only: blocks `write`, `edit` and any bash command that is not plainly read-only. |
 | `telegram` | `telegram_send`: the model sends you a file in the Telegram chat paired in kinoko's `/integrations` ("send me the report on Telegram"), up to 50 MB, as it is. |
 | `vision` | `view` and `screenshot`: the model looks at pictures and videos (any format ffmpeg decodes, scaled; a video as frames spread over it) and at the screen or the focused window. Needs a vision model and a kinoko whose tools can answer with images. |
-| `web` | `web_search` and `web_fetch`, no key needed: Bing's feed, then Bing's page, DuckDuckGo, Marginalia (your `SEARXNG_URL` or `BRAVE_API_KEY` first when set); pages as markdown with links and code blocks. |
+| `web` | `web_search` and `web_fetch`. Searches with Tavily, Exa or your own SearXNG when set up (all free, see below), else Brave's, DuckDuckGo's and Bing's pages and Wikipedia; scraped results must be about the query. Pages as markdown with links and code blocks. |
 
 ## Install
 
@@ -25,6 +25,27 @@ Del twice removes it. Either is in effect at once, no restart.
 
 By hand: copy a folder to `~/.kinoko/ext/<name>/` (or `./.kinoko/ext/<name>/` for one project),
 then run `bun install` in it when its `package.json` has dependencies.
+
+## Web search that does not give up
+
+Without a key, `web_search` reads search engines' pages, and they turn scripts away after a few
+searches in a row. Any of these makes it reliable; they are free, and tried first in this order:
+
+- **Tavily** (1,000 searches a month, no card): sign up at [tavily.com](https://tavily.com), copy the key.
+- **Exa** (free credits, no card): sign up at [exa.ai](https://exa.ai), copy the key.
+- **SearXNG**, your own (no key, no limit), with Docker:
+  `docker run -d --name searxng --restart unless-stopped -p 127.0.0.1:8888:8080 -v ~/.config/searxng:/etc/searxng searxng/searxng`,
+  then in `~/.config/searxng/settings.yml` add `json` to `search: formats:` (`formats: [html, json]`)
+  and `docker restart searxng`.
+
+Put them in `~/.kinoko/web.json` (`chmod 600` it), only the ones you have:
+
+```json
+{ "tavily": "tvly-...", "exa": "...", "searxng": "http://127.0.0.1:8888" }
+```
+
+or in the environment (`TAVILY_API_KEY`, `EXA_API_KEY`, `SEARXNG_URL`; `BRAVE_API_KEY` works too).
+It is read on every search: no restart.
 
 ## Write one
 
