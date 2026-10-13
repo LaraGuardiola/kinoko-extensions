@@ -1,0 +1,6 @@
+{
+  "name": "kinoko-ext-latex",
+  "description": "LaTeX math drawn in the terminal: $$ blocks, ```math fences and inline $…$, in Unicode",
+  "private": true,
+  "type": "module"
+}
