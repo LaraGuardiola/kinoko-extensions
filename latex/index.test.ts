@@ -38,7 +38,7 @@ describe("latex extension", () => {
     expect(rows).toHaveLength(4);
     expect(rows[2]).toMatch(/^x = ─+$/);
     expect(rows[1]).toContain("−b ± √b² − 4ac");
-    expect(rows[0]!.indexOf("─")).toBe(rows[1]!.indexOf("√") + 1);
+    expect(rows[0]!.indexOf("_")).toBe(rows[1]!.indexOf("√") + 1); // the bar sits on the radicand
   });
 
   test("∑ and lim carry their limits above and below; ∫ at its side", () => {

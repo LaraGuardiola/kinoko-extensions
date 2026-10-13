@@ -140,7 +140,7 @@ export function display(node: Node): Box {
       const w = widthOf(body);
       const index = node.index === undefined ? "" : (scriptForm(flat(node.index, true), true) ?? flat(node.index, true));
       const h = body.rows.length;
-      const rows = [" ".repeat(textWidth(index) + 1) + "─".repeat(w), ...body.rows.map((r, i) => (i === h - 1 ? `${index}√` : `${" ".repeat(textWidth(index))}│`) + pad(r, w))];
+      const rows = [" ".repeat(textWidth(index) + 1) + "_".repeat(w), ...body.rows.map((r, i) => (i === h - 1 ? `${index}√` : `${" ".repeat(textWidth(index))}│`) + pad(r, w))];
       return { rows, base: body.base + 1 };
     }
     case "scripts":
