@@ -10,6 +10,7 @@
 //              "--prompt", "Kinoko", "-nt", "-np", "-f", "{wav}"] },
 //     "tts": { "http": "http://127.0.0.1:8091/v1/audio/speech", "voice": "wheatley", "language": "Spanish" },
 //     "wake": "kinoko", "record": ["pw-record", …] }
+// "wake": false (or /voice wake off) when you are alone: everything said is for kinoko.
 // or an OpenAI-compatible server: { "stt": { "http": "http://127.0.0.1:8092/v1/audio/transcriptions" } }
 
 import { readFile } from "node:fs/promises";
@@ -25,11 +26,12 @@ import { transcribe } from "./stt.ts";
 import type { SttBackend } from "./stt.ts";
 import { Vad } from "./vad.ts";
 import { afterWake, isEcho } from "./wake.ts";
+import { isNoise } from "./stt.ts";
 
 export interface VoiceConfig {
   stt: SttBackend;
-  /** The word that says it is for kinoko. */
-  wake: string;
+  /** The word that says it is for kinoko; false: everything said is (alone in a quiet room). */
+  wake: string | false;
   /** The program that records: raw 16 kHz mono s16 on its stdout. */
   record: string[];
   /** How replies are read aloud; without it kinoko only listens. */
@@ -60,7 +62,7 @@ export async function readConfig(path = CONFIG_PATH): Promise<VoiceConfig | stri
   if (!usable) return `${path} needs "stt": a "command" or an "http" endpoint`;
   const backend = raw.stt as SttBackend;
   const tts = raw.tts && "command" in raw.tts ? { ...raw.tts, command: raw.tts.command.map(home) } : raw.tts;
-  return { stt: "command" in backend ? { command: backend.command.map(home) } : backend, wake: raw.wake ?? "kinoko", record: (raw.record ?? RECORD).map(home), ...(tts ? { tts } : {}) };
+  return { stt: "command" in backend ? { command: backend.command.map(home) } : backend, wake: raw.wake === false || raw.wake === "" ? false : (raw.wake ?? "kinoko"), record: (raw.record ?? RECORD).map(home), ...(tts ? { tts } : {}) };
 }
 
 export interface Deps {
@@ -87,6 +89,11 @@ export function install(k: Kinoko, deps: Deps): void {
   let heardLately: string[] = [];
   /** The last thing that went wrong, for /voice (the TUI shows no extension's log). */
   let lastProblem: string | undefined;
+  /** /voice wake off|on, over the config's: undefined follows the config. */
+  let wakeOff: boolean | undefined;
+  let configWake: string | false = "kinoko"; // read when voice mode starts
+  /** The name to hear before something is for kinoko; false: everything is. */
+  const wakeWord = (): string | false => (wakeOff === undefined ? configWake : wakeOff ? false : configWake || "kinoko");
   const remember = (text: string, what: string): void => {
     if (text !== "") heardLately = [...heardLately, `  "${text}" → ${what}`].slice(-5);
   };
@@ -108,7 +115,7 @@ export function install(k: Kinoko, deps: Deps): void {
   });
   k.on("interrupt", hush);
 
-  const listening = (): void => k.status(deps.now() < followUntil ? "● kinoko hears you" : "● listening");
+  const listening = (): void => k.status(wakeWord() === false ? "● listening to everything" : deps.now() < followUntil ? "● kinoko hears you" : "● listening");
 
   const close = (why?: string): void => {
     hush();
@@ -138,7 +145,9 @@ export function install(k: Kinoko, deps: Deps): void {
     }
     if (signal.aborted) return;
     const following = deps.now() < followUntil;
-    const said = afterWake(text, config.wake) ?? (following ? text : undefined);
+    const wake = wakeWord();
+    // Without the name, everything said is for kinoko, but not whisper's inventions on noise.
+    const said = wake === false ? (isNoise(text) ? undefined : (afterWake(text, "kinoko") ?? text)) : (afterWake(text, wake) ?? (following ? text : undefined));
     // Its own voice, heard through the microphone, is not the user.
     if (speaker && said !== undefined && isEcho(said, speaker.recent)) {
       remember(text, "its own voice: dropped");
@@ -165,6 +174,7 @@ export function install(k: Kinoko, deps: Deps): void {
     opening = true;
     const config = await deps.config().finally(() => (opening = false));
     if (typeof config === "string") return close(config);
+    configWake = config.wake;
     // "/voice none": the model's own voice, no clone.
     const tts = config.tts && voiceName !== undefined ? { ...config.tts, voice: voiceName === "none" ? undefined : voiceName } : config.tts;
     speaker = tts
@@ -204,6 +214,11 @@ export function install(k: Kinoko, deps: Deps): void {
     "voice",
     async (args) => {
       const word = args.trim();
+      if (word === "wake off" || word === "wake on") {
+        wakeOff = word === "wake off";
+        if (mic) listening();
+        return wakeOff ? 'No name needed: everything said is for kinoko (in a quiet room). /voice wake on to need "kinoko, …" again.' : 'Only what starts with "kinoko" is for kinoko again.';
+      }
       if (word === "quiet" || word === "talk") {
         quiet = word === "quiet";
         if (quiet) hush();
@@ -219,9 +234,11 @@ export function install(k: Kinoko, deps: Deps): void {
       if (typeof config === "string") return `Voice is not set up: ${config}.`;
       const talks = config.tts ? (quiet ? "it does not talk (/voice talk)" : `it talks as ${voiceName ?? config.tts.voice ?? "the default voice"} (/voice quiet)`) : 'no "tts" in voice.json: it only listens';
       const lately = (heardLately.length > 0 ? `\nHeard lately:\n${heardLately.join("\n")}` : "") + (lastProblem ? `\nLast problem: ${lastProblem}` : "");
-      return (mic ? `Listening: say "kinoko, …"; ${talks}. Ctrl+Space turns it off.` : `Voice is off: Ctrl+Space turns it on; ${talks}.`) + lately;
+      configWake = config.wake;
+      const name = wakeWord() === false ? "everything said is for kinoko (/voice wake on)" : `say "${wakeWord() || "kinoko"}, …" (/voice wake off: no name needed)`;
+      return (mic ? `Listening: ${name}; ${talks}. Ctrl+Space turns it off.` : `Voice is off: Ctrl+Space turns it on; ${talks}.`) + lately;
     },
-    "talking with kinoko: on or off, the voice (/voice <name>, /voice none), quiet or talk",
+    "talking with kinoko: on or off, the voice (/voice <name>, /voice none), quiet or talk, wake off|on",
   );
 }
 

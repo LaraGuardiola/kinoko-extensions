@@ -101,7 +101,9 @@ stop it: only something said to it ("kinoko, …") does.
 `{wav}` is the utterance, `{ac}` whisper's audio window sized to it (left out, whisper works through
 30 s of audio for every phrase: ten times slower). `--prompt Kinoko` teaches it the name. Any
 OpenAI-compatible server works instead: `"stt": { "http": "http://127.0.0.1:8092/v1/audio/transcriptions",
-"language": "es" }` (with `"key"` for a cloud one). `"wake"` changes the name it answers to;
+"language": "es" }` (with `"key"` for a cloud one). `"wake"` changes the name it answers to, and
+`"wake": false` (or `/voice wake off` for a while) needs no name: alone in a quiet room, everything
+said is for kinoko (whisper's inventions on noise, "¡Suscríbete!", "Gracias.", are dropped);
 `"record"` the program that records (raw 16 kHz mono s16 on its stdout). `/voice` says whether it
 is listening, or what is missing.
 

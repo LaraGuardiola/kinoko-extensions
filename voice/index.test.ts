@@ -239,6 +239,26 @@ describe("the voice extension", () => {
     expect(late.bus.sent).toEqual([]);
   });
 
+  test("no wake word (alone in a quiet room): everything said is for kinoko, but not whisper's inventions on noise", async () => {
+    const s = setup(["mira el test", "¡Suscríbete!", "Gracias.", "Kinoko, para", "gracias, ya funciona"], { ...config, wake: false });
+    await s.bus.press("ctrl-space");
+    expect(s.bus.shown).toBe("● listening to everything");
+    // oxlint-disable-next-line no-await-in-loop -- said one after the other, as a person would
+    for (let i = 0; i < 5; i++) await s.say(utterance());
+    expect(s.bus.sent.map((m) => m.text)).toEqual(["mira el test", "para", "gracias, ya funciona"]);
+
+    const t = setup(["mira el test", "Kinoko, mira el test"]);
+    await t.bus.press("ctrl-space");
+    expect(await t.bus.command("voice")!("wake off")).toContain("No name needed");
+    expect(t.bus.shown).toBe("● listening to everything");
+    await t.say(utterance());
+    await t.bus.command("voice")!("wake on");
+    expect(t.bus.shown).toBe("● listening");
+    await t.say(utterance());
+    expect(t.bus.sent.map((m) => m.text)).toEqual(["mira el test", "mira el test"]);
+    expect(await t.bus.command("voice")!("")).toContain("/voice wake off");
+  });
+
   test("not set up, or the microphone fails: the status says why and the microphone is closed", async () => {
     const s = setup([], "no ~/.kinoko/voice.json: see the voice extension's README");
     await s.bus.press("ctrl-space");
@@ -262,6 +282,8 @@ describe("the voice extension", () => {
     expect(await readConfig(path)).toMatchObject({ wake: "kinoko", record: expect.arrayContaining(["pw-record"]) });
     writeFileSync(path, JSON.stringify({ stt: { command: ["~/whisper/whisper-cli", "-f", "{wav}"] } }));
     expect(await readConfig(path)).toMatchObject({ stt: { command: [join(homedir(), "whisper/whisper-cli"), "-f", "{wav}"] } });
+    writeFileSync(path, JSON.stringify({ stt: { http: "http://x" }, wake: false }));
+    expect(await readConfig(path)).toMatchObject({ wake: false });
     writeFileSync(path, JSON.stringify({ stt: {} }));
     expect(await readConfig(path)).toContain('needs "stt"');
     expect(await readConfig(join(ROOT, "none.json"))).toStartWith("no ");

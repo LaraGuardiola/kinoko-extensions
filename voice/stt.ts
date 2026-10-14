@@ -55,3 +55,20 @@ export function clean(text: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** What whisper writes for silence, breath or noise (it learnt it from subtitled videos). */
+const INVENTED = new Set(["gracias", "muchas gracias", "gracias por ver", "gracias por ver el video", "suscribete", "subtitulos", "subtitulado", "amara", "thank you", "thanks for watching", "you", "musica", "silencio", "aplausos", "risas"]);
+
+/** Not something said: nothing, a sound note, or one of whisper's inventions on noise. */
+export function isNoise(text: string): boolean {
+  const plain = text
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} ]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plain.replace(/ /g, "").length < 2) return true;
+  // Only the whole of it: "gracias, ya funciona" is said by someone.
+  return INVENTED.has(plain) || plain.includes("amara org") || plain.includes("subtitulos por") || plain.includes("subtitulos realizados");
+}
