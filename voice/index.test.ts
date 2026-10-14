@@ -215,6 +215,7 @@ describe("the voice extension", () => {
       { text: "mira por qué falla el test.", as: "steer_now" },
       { text: "gracias", as: "steer_now" },
     ]);
+    expect(await s.bus.command("voice")!("")).toContain('"Pásame la sal" → not for kinoko');
     expect(s.bus.shown).toBe("● listening");
     await s.bus.press("ctrl-space");
     expect(s.stopped()).toBe(1);

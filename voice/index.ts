@@ -83,6 +83,11 @@ export function install(k: Kinoko, deps: Deps): void {
   let quiet = false; // /voice quiet: listening only
   let voiceName: string | undefined; // /voice <name>, over the config's
   const sentences = new Sentences();
+  /** The last things heard, for /voice: what whisper wrote, and what became of it. */
+  let heardLately: string[] = [];
+  const remember = (text: string, what: string): void => {
+    if (text !== "") heardLately = [...heardLately, `  "${text}" → ${what}`].slice(-5);
+  };
 
   const hush = (): void => {
     speaker?.stop();
@@ -132,7 +137,11 @@ export function install(k: Kinoko, deps: Deps): void {
     const following = deps.now() < followUntil;
     const said = afterWake(text, config.wake) ?? (following ? text : undefined);
     // Its own voice, heard through the microphone, is not the user.
-    if (speaker && said !== undefined && isEcho(said, speaker.recent)) return listening();
+    if (speaker && said !== undefined && isEcho(said, speaker.recent)) {
+      remember(text, "its own voice: dropped");
+      return listening();
+    }
+    remember(text, said === undefined ? 'not for kinoko (no "kinoko" starting a sentence)' : said === "" ? "the name: listening for what follows" : "sent");
     if (said === "") {
       // The name alone: the next words are for kinoko; after a while, the name is needed again.
       followUntil = deps.now() + FOLLOW_MS;
@@ -200,7 +209,8 @@ export function install(k: Kinoko, deps: Deps): void {
       const config = await deps.config();
       if (typeof config === "string") return `Voice is not set up: ${config}.`;
       const talks = config.tts ? (quiet ? "it does not talk (/voice talk)" : `it talks as ${voiceName ?? config.tts.voice ?? "the default voice"} (/voice quiet)`) : 'no "tts" in voice.json: it only listens';
-      return mic ? `Listening: say "kinoko, …"; ${talks}. Ctrl+Space turns it off.` : `Voice is off: Ctrl+Space turns it on; ${talks}.`;
+      const lately = heardLately.length > 0 ? `\nHeard lately:\n${heardLately.join("\n")}` : "";
+      return (mic ? `Listening: say "kinoko, …"; ${talks}. Ctrl+Space turns it off.` : `Voice is off: Ctrl+Space turns it on; ${talks}.`) + lately;
     },
     "talking with kinoko: on or off, the voice (/voice <name>), quiet or talk",
   );
