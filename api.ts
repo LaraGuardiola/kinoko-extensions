@@ -80,7 +80,7 @@ export interface Kinoko {
   /** Sends `text` as if the user typed it and pressed Enter (or Alt+X, for "steer_now"). False
    *  where nobody types: print and rpc modes. */
   send(text: string, opts?: { as?: SendAs }): boolean;
-  /** A short line in the TUI's status bar ("● listening"); undefined takes it away. */
+  /** A short word on the TUI's rule above the input, right side ("● listening"); undefined takes it away. */
   status(text: string | undefined): void;
   log(message: string): void;
 }

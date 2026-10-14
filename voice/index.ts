@@ -1,7 +1,7 @@
 // Talking to kinoko. Ctrl+Space opens the microphone (and Ctrl+Space again closes it); what you
 // say that starts with "kinoko" is sent as your prompt ("Kinoko, mira por qué falla el test"), or
 // as a steer while it works. "Kinoko" on its own: the next thing said, within a few seconds, is
-// for kinoko without the name. The status line says what it is doing.
+// for kinoko without the name. The rule above the input says it is listening.
 //
 // ~/.kinoko/voice.json (see README):
 //   { "stt": { "command": ["whisper-cli", "-m", "…/ggml-small-q5_1.bin", "-l", "es", "-ac", "{ac}",
@@ -80,7 +80,8 @@ export function install(k: Kinoko, deps: Deps): void {
 
   const heard = async (config: VoiceConfig, pcm: Int16Array, signal: AbortSignal): Promise<void> => {
     if (signal.aborted) return;
-    k.status("● transcribing…");
+    // No "transcribing" word: every sound in the room is transcribed (to look for the name), and the
+    // word would flicker; it stays "● listening" until something is for kinoko.
     let text: string;
     try {
       text = await deps.transcribe(config.stt, pcm, signal);
