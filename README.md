@@ -57,7 +57,7 @@ It is read on every search: no restart.
 A folder with:
 
 - `index.ts`: a default export that takes kinoko's handle (`on`, `registerTool`, `registerCommand`,
-  `registerRenderer`, `log`). Import kinoko's types with `import type { ... } from "../api.ts"` only: the folder is
+  `registerRenderer`, `registerKey`, `send`, `status`, `log`). Import kinoko's types with `import type { ... } from "../api.ts"` only: the folder is
   copied alone, and type imports vanish at runtime. Nothing else outside the folder.
 - `package.json`: `description` (shown in kinoko's list) and, when it needs them, `dependencies`
   (kinoko runs `bun install` in the folder when it installs it, e.g. puppeteer). Only for some

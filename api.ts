@@ -51,6 +51,10 @@ export interface ExtHandlers {
   turn_end: (message: Message) => void;
   compact: (info: CompactInfo) => void;
   run_end: (result: RunResult) => void;
+  /** Everything the agent tells its clients (AgentEvent below), as it happens: read-only. */
+  agent_event: (event: AgentEvent) => void;
+  /** The user asked for quiet: Esc or Ctrl-C in the TUI, with a run going or not. */
+  interrupt: () => void;
 }
 
 export type ExtEvent = keyof ExtHandlers;
@@ -59,6 +63,11 @@ export type ExtensionFactory = (k: Kinoko) => void | Promise<void>;
 /** Draws a fenced block of its language (```mermaid) in the transcript: the rows, each at most
  *  `width` columns, or undefined to show the source as code. Called with whole blocks only. */
 export type FenceRenderer = (source: string, width: number) => string[] | undefined;
+/** The keys an extension may take: ones the TUI leaves free. */
+export type ExtKey = "ctrl-space";
+export type KeyHandler = () => void | Promise<void>;
+/** A prompt (when idle, a steer otherwise), or a steer delivered now, cutting the reply being streamed. */
+export type SendAs = "prompt" | "steer_now";
 
 export interface Kinoko {
   on<E extends ExtEvent>(event: E, handler: ExtHandlers[E]): void;
@@ -66,10 +75,44 @@ export interface Kinoko {
   /** `/name args` in the TUI (listed in its slash menu with `description`), and `kinoko /name args`. */
   registerCommand(name: string, handler: CommandHandler, description?: string): void;
   registerRenderer(lang: string, render: FenceRenderer): void;
+  /** A key in the TUI (listed in /help with `description`). */
+  registerKey(key: ExtKey, handler: KeyHandler, description?: string): void;
+  /** Sends `text` as if the user typed it and pressed Enter (or Alt+X, for "steer_now"). False
+   *  where nobody types: print and rpc modes. */
+  send(text: string, opts?: { as?: SendAs }): boolean;
+  /** A short line in the TUI's status bar ("● listening"); undefined takes it away. */
+  status(text: string | undefined): void;
   log(message: string): void;
 }
 
 export type RunResult = { reason: "done" | "aborted" | "error" | "limit"; dropped?: string[]; detail?: string };
+
+/** What the agent tells its clients (kinoko's src/agent-events.ts), in the order a run produces them. */
+export type AgentEvent =
+  | { type: "run_start"; prompt: string }
+  | { type: "request_start"; at: number; model: string; messages: number; tools: number; chars: number; tokens: number }
+  | { type: "prefill"; done: number; total: number }
+  | { type: "first_token"; at: number }
+  | { type: "message_delta"; delta: string } // the reply's text, as it streams
+  | { type: "thinking_delta"; delta: string }
+  | { type: "message_end"; message: Message }
+  | { type: "tool_pending"; name: string; args?: Record<string, string>; index?: number }
+  | { type: "tool_start"; call: ToolCall }
+  | { type: "gate"; call: ToolCall; decision: "pass" | "block" | "ask"; by?: string; reason?: string; rewritten?: boolean; skipped?: "auto" | "remembered" }
+  | { type: "tool_output"; call: ToolCall; output: string }
+  | { type: "tool_end"; call: ToolCall }
+  | { type: "appended"; role: Role; kind: "prompt" | "steer" | "follow_up" | "reply" | "result" | "note" | "nudge"; chars: number; text?: string }
+  | { type: "guard"; what: "repeat" | "empty" | "length" | "same_call" | "same_error" | "unknown_tool"; detail: string }
+  | { type: "queue_change"; steer: string[]; followUp: string[] }
+  | { type: "delivered"; text: string }
+  | { type: "compacting"; phase: "reading" | "writing"; done: number; total?: number }
+  | { type: "compacted"; keep: number }
+  | { type: "approval_request"; id: string; call: ToolCall; reason: string }
+  | { type: "approval_end"; id: string; allow: boolean; by: "tui" | "app" | "telegram" | "timeout" | "abort" }
+  | { type: "jobs"; running: number }
+  | { type: "model"; model: string }
+  | { type: "retry"; attempt: number; of: number; inMs: number; error: string }
+  | { type: "run_end"; reason: "done" | "aborted" | "error" | "limit"; dropped?: string[]; detail?: string };
 
 export interface ToolCall {
   id: string;

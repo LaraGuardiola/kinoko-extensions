@@ -1,8 +1,9 @@
 // A stand-in for kinoko's extension host, for the tests: the same calls an extension makes
-// (on, registerTool, registerCommand, registerRenderer, log) and the same way kinoko fires events back. Handlers
-// that throw are skipped, as in kinoko.
+// (on, registerTool, registerCommand, registerRenderer, registerKey, send, status, log) and the same
+// way kinoko fires events back. Handlers that throw are skipped, as in kinoko. What an extension sends
+// as the user and the status it shows are kept, for the tests to read.
 
-import type { CommandHandler, ExtEvent, ExtHandlers, FenceRenderer, Kinoko, Tool, ToolCallAsk, ToolCallBlock, ToolCallDecision, ToolCallEvent } from "../api.ts";
+import type { CommandHandler, ExtEvent, ExtHandlers, ExtKey, FenceRenderer, KeyHandler, Kinoko, SendAs, Tool, ToolCallAsk, ToolCallBlock, ToolCallDecision, ToolCallEvent } from "../api.ts";
 
 type AnyHandler = (arg: never) => unknown;
 
@@ -11,7 +12,12 @@ export class Bus implements Kinoko {
   #tools: Tool[] = [];
   #commands = new Map<string, CommandHandler>();
   #renderers = new Map<string, FenceRenderer>();
+  #keys = new Map<string, KeyHandler>();
   logs: string[] = [];
+  /** What the extension sent as the user, in order. */
+  sent: Array<{ text: string; as: SendAs }> = [];
+  /** The status it shows now. */
+  shown: string | undefined;
 
   on<E extends ExtEvent>(event: E, handler: ExtHandlers[E]): void {
     this.#handlers.set(event, [...(this.#handlers.get(event) ?? []), handler as AnyHandler]);
@@ -27,6 +33,27 @@ export class Bus implements Kinoko {
 
   registerRenderer(lang: string, render: FenceRenderer): void {
     this.#renderers.set(lang, render);
+  }
+
+  registerKey(key: ExtKey, handler: KeyHandler): void {
+    this.#keys.set(key, handler);
+  }
+
+  /** Presses a key, as the TUI does: true when an extension took it. */
+  async press(key: string): Promise<boolean> {
+    const handler = this.#keys.get(key);
+    if (handler === undefined) return false;
+    await handler();
+    return true;
+  }
+
+  send(text: string, opts?: { as?: SendAs }): boolean {
+    this.sent.push({ text, as: opts?.as ?? "prompt" });
+    return true;
+  }
+
+  status(text: string | undefined): void {
+    this.shown = text;
   }
 
   renderer(lang: string): FenceRenderer | undefined {
