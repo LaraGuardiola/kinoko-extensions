@@ -1,0 +1,7 @@
+{
+  "name": "kinoko-ext-voice",
+  "description": "talk to kinoko: Ctrl+Space opens the microphone, say \"kinoko, ...\" and it is a prompt (whisper.cpp or any speech-to-text server)",
+  "private": true,
+  "type": "module",
+  "os": ["linux"]
+}
