@@ -6,7 +6,7 @@ import { Bus } from "../testing/bus.ts";
 import { install, readConfig } from "./index.ts";
 import type { Deps, Voice, VoiceConfig } from "./index.ts";
 import { Sentences } from "./sentences.ts";
-import { Speaker, registerVoice, synth } from "./speaker.ts";
+import { Speaker, openPlayer, registerVoice, scaled, synth } from "./speaker.ts";
 import type { Player } from "./speaker.ts";
 import { audioContext, clean, transcribe } from "./stt.ts";
 import { Vad, loudness } from "./vad.ts";
@@ -153,6 +153,7 @@ function fakeVoice(): FakeVoice {
     },
     end: () => void voice.log.push("end"),
     stop: () => void voice.log.push("stop"),
+    duck: (on) => void voice.log.push(on ? "duck" : "unduck"),
   };
   return voice;
 }
@@ -287,6 +288,18 @@ describe("the voice extension", () => {
     expect(s.voice.log.at(-1)).toBe("voice glados");
   });
 
+  test("someone speaking while kinoko talks: quieter at once; back up when it was not for kinoko", async () => {
+    const s = setup(["Pásame la sal", "Kinoko, para"]);
+    await s.bus.press("ctrl-space");
+    s.voice.log.length = 0;
+    await s.say(utterance());
+    expect(s.voice.log).toEqual(["duck", "unduck"]);
+    s.voice.log.length = 0;
+    await s.say(utterance());
+    expect(s.voice.log).toEqual(["duck", "unduck", "stop"]);
+    expect(s.bus.sent).toEqual([{ text: "para", as: "steer_now" }]);
+  });
+
   test("talking to it stops its voice; its own voice through the microphone is not taken for the user", async () => {
     const s = setup(["Kinoko, el fallo estaba en la función de carga", "Kinoko, para"]);
     await s.bus.press("ctrl-space");
@@ -296,13 +309,13 @@ describe("the voice extension", () => {
     expect(s.bus.sent).toEqual([]);
     await s.say(utterance());
     expect(s.bus.sent).toEqual([{ text: "para", as: "steer_now" }]);
-    expect(s.voice.log).toEqual(["stop"]);
+    expect(s.voice.log).toEqual(["duck", "unduck", "duck", "unduck", "stop"]); // its own voice: back up, not stopped
   });
 });
 
 /** A player that writes down its audio. */
 function fakePlayer(log: string[]): Player {
-  return { write: (chunk) => void log.push(`play ${new TextDecoder().decode(chunk)}`), end: async () => void log.push("end"), kill: () => void log.push("kill") };
+  return { write: (chunk) => void log.push(`play ${new TextDecoder().decode(chunk)}`), gain: (g) => void log.push(`gain ${g}`), end: async () => void log.push("end"), kill: () => void log.push("kill") };
 }
 
 /** Until the speaker has said all it had. */
@@ -345,7 +358,7 @@ describe("speaking", () => {
     speaker.say("dos");
     speaker.end();
     await silent(speaker);
-    expect(log).toEqual(["prepare", "play <uno>", "play <dos>", "end", "kill"]);
+    expect(log).toEqual(["prepare", "gain 1", "play <uno>", "play <dos>", "end", "kill"]);
     log.length = 0;
     speaker.say("slow");
     speaker.say("never");
@@ -353,7 +366,21 @@ describe("speaking", () => {
     speaker.stop();
     release?.();
     await silent(speaker);
-    expect(log).toEqual(["kill", "kill"]); // killed at once (and again on the way out); "never" not made
+    expect(log).toEqual(["gain 1", "kill", "kill"]); // killed at once (and again on the way out); "never" not made
+  });
+
+  test("the player is fed in real time, a quarter of a second ahead, so a lower volume is heard at once", async () => {
+    mkdirSync(ROOT, { recursive: true });
+    const out = join(ROOT, "played.pcm");
+    const player = openPlayer(24_000, ["sh", "-c", `cat > ${out}`]);
+    const at = performance.now();
+    player.write(new Uint8Array(24_000 * 2)); // a second of audio, made at once
+    player.gain(0.2);
+    await player.end();
+    expect(performance.now() - at).toBeGreaterThan(650); // fed as it is heard, not all at once
+    const played = new Uint8Array(await Bun.file(out).arrayBuffer());
+    expect(played.length).toBe(24_000 * 2);
+    expect(scaled(Uint8Array.of(0x10, 0x27), 0.5)).toEqual(Uint8Array.of(0x88, 0x13)); // 10000 → 5000
   });
 
   test("a backend that fails: said once, and the voice taught again next time", async () => {
@@ -375,7 +402,7 @@ describe("speaking", () => {
     speaker.say("hola");
     speaker.end();
     await silent(speaker);
-    expect(log).toEqual(["prepare", "failed unknown voice 'wheatley'", "kill", "prepare", "play hola", "end", "kill"]);
+    expect(log).toEqual(["prepare", "gain 1", "failed unknown voice 'wheatley'", "kill", "prepare", "gain 1", "play hola", "end", "kill"]);
   });
 
   test("an OpenAI-compatible server: asked for streamed PCM in the voice; a voice from ~/.kinoko/voices registered, latents first", async () => {

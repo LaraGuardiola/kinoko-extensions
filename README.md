@@ -86,6 +86,17 @@ says). The extension teaches it to the server when voice mode starts. Encode the
 loaded LLM may have taken. `/voice <name>` picks another voice, `/voice quiet` keeps it listening
 without talking, `/voice talk` brings the voice back.
 
+**Echo cancelling** (needed with speakers, not with headphones): the microphone hears kinoko
+talking. Without help, whisper transcribes it, and when it says its own name it would answer
+itself. PipeWire's WebRTC echo canceller gives a microphone with what the speakers play taken out
+(its voice, and your music too). Run it as its own small pipewire process, so the main one is not
+touched and the default microphone does not change: a config with
+`libpipewire-module-echo-cancel` (`library.name = aec/libspa-aec-webrtc`, `monitor.mode = true`,
+its source named `kinoko-aec-source`), started by a user service (`pipewire -c <that config>`), then
+`"record": ["pw-record", "--target", "kinoko-aec-source", "--raw", "--rate", "16000", "--channels",
+"1", "--format", "s16", "-"]` in voice.json. While kinoko talks, someone speaking makes it quieter
+at once; when what was said starts with "kinoko" it stops, otherwise it comes back up.
+
 `{wav}` is the utterance, `{ac}` whisper's audio window sized to it (left out, whisper works through
 30 s of audio for every phrase: ten times slower). `--prompt Kinoko` teaches it the name. Any
 OpenAI-compatible server works instead: `"stt": { "http": "http://127.0.0.1:8092/v1/audio/transcriptions",

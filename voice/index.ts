@@ -37,7 +37,7 @@ export interface VoiceConfig {
 }
 
 /** What install needs of a Speaker (tests pass a fake). */
-export type Voice = Pick<Speaker, "say" | "end" | "stop" | "speaking" | "recent">;
+export type Voice = Pick<Speaker, "say" | "end" | "stop" | "duck" | "speaking" | "recent">;
 
 export const CONFIG_PATH = join(homedir(), ".kinoko", "voice.json");
 
@@ -123,10 +123,12 @@ export function install(k: Kinoko, deps: Deps): void {
     try {
       text = await deps.transcribe(config.stt, pcm, signal);
     } catch (e) {
+      speaker?.duck(false);
       if (!signal.aborted) close(e instanceof Error ? e.message : String(e));
       return;
     }
     if (signal.aborted) return;
+    speaker?.duck(false); // stopped below when it was for kinoko
     const following = deps.now() < followUntil;
     const said = afterWake(text, config.wake) ?? (following ? text : undefined);
     // Its own voice, heard through the microphone, is not the user.
@@ -160,7 +162,10 @@ export function install(k: Kinoko, deps: Deps): void {
       config.record,
       (pcm) => {
         for (const event of vad.push(pcm)) {
-          if (event.type === "end") queue = queue.then(() => heard(config, event.pcm, own.signal));
+          // Someone speaks while kinoko talks: quieter at once, before a word is transcribed; if it
+          // was for kinoko it stops, if not (someone else, a noise) it comes back up.
+          if (event.type === "start") speaker?.duck(true);
+          else queue = queue.then(() => heard(config, event.pcm, own.signal));
         }
       },
       (why) => {
