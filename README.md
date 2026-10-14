@@ -54,58 +54,11 @@ It is read on every search: no restart.
 
 ## Talking to kinoko (voice)
 
-The `voice` extension records with PipeWire's `pw-record` and reads `~/.kinoko/voice.json` for how
-to turn speech into text. With [whisper.cpp](https://github.com/ggml-org/whisper.cpp) built
-(`cmake -B build && cmake --build build -j --target whisper-cli`) and its small multilingual model
-(`ggml-small-q5_1.bin`, 190 MB: a 2-second phrase in ~0.3 s on a laptop CPU):
-
-```json
-{
-  "stt": {
-    "command": ["~/Projects/whisper.cpp/build/bin/whisper-cli", "-m", "~/Projects/whisper.cpp/models/ggml-small-q5_1.bin",
-                "-l", "es", "-t", "8", "-bs", "1", "-bo", "1", "-ac", "{ac}", "--prompt", "Kinoko", "-nt", "-np", "-f", "{wav}"]
-  }
-}
-```
-
-To hear it talk, add a `"tts"`: any OpenAI-compatible `/v1/audio/speech` that streams raw PCM
-(`"response_format": "pcm"`, 16-bit mono, 24 kHz unless `"rate"` says otherwise), or a `"command"`
-that reads the text on stdin and writes that PCM to stdout:
-
-```json
-"tts": { "http": "http://127.0.0.1:8091/v1/audio/speech", "voice": "wheatley", "language": "Spanish" }
-```
-
-[qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)'s `tts-server` (Qwen3-TTS: Spanish
-and nine more languages, voices cloned from a few seconds of audio) streams the first audio in
-~0.1 s and speaks ~6× faster than real time on a laptop GPU (~2.6 GB of VRAM). A cloned voice is a
-clip in `~/.kinoko/voices/`: `<name>.wav` (10–15 s, one person, no music) and `<name>.txt` (what it
-says). The extension teaches it to the server when voice mode starts. Encode the clip ahead once
-(`qwen-codec --device CPU --model <tokenizer.gguf> --talker <talker.gguf> -i <name>.wav` writes
-`<name>.spk` and `<name>.rvq` beside it) and the server does not have to, which needs GPU memory a
-loaded LLM may have taken. `"temperature"` (Qwen3-TTS: 0.9 unless set) makes the delivery calmer and flatter when lower; no
-`"voice"`, or `/voice none`, is the model's own voice. `/voice <name>` picks another voice, `/voice quiet` keeps it listening
-without talking, `/voice talk` brings the voice back.
-
-**Echo cancelling** (needed with speakers, not with headphones): the microphone hears kinoko
-talking. Without help, whisper transcribes it, and when it says its own name it would answer
-itself. PipeWire's WebRTC echo canceller gives a microphone with what the speakers play taken out
-(its voice, and your music too). Run it as its own small pipewire process, so the main one is not
-touched and the default microphone does not change: a config with
-`libpipewire-module-echo-cancel` (`library.name = aec/libspa-aec-webrtc`, `monitor.mode = true`,
-its source named `kinoko-aec-source`), started by a user service (`pipewire -c <that config>`), then
-`"record": ["pw-record", "--target", "kinoko-aec-source", "--raw", "--rate", "16000", "--channels",
-"1", "--format", "s16", "-"]` in voice.json. While kinoko talks, other voices in the room do not
-stop it: only something said to it ("kinoko, …") does.
-
-`{wav}` is the utterance, `{ac}` whisper's audio window sized to it (left out, whisper works through
-30 s of audio for every phrase: ten times slower). `--prompt Kinoko` teaches it the name. Any
-OpenAI-compatible server works instead: `"stt": { "http": "http://127.0.0.1:8092/v1/audio/transcriptions",
-"language": "es" }` (with `"key"` for a cloud one). `"wake"` changes the name it answers to, and
-`"wake": false` (or `/voice wake off` for a while) needs no name: alone in a quiet room, everything
-said is for kinoko (whisper's inventions on noise, "¡Suscríbete!", "Gracias.", are dropped);
-`"record"` the program that records (raw 16 kHz mono s16 on its stdout). `/voice` says whether it
-is listening, or what is missing.
+Ctrl+Space and kinoko listens ("kinoko, …") and talks back as it writes. Speech to text and text to
+speech are backends you choose in `~/.kinoko/voice.json`: a program (whisper.cpp's `whisper-cli`,
+piper) or any OpenAI-compatible server (qwentts.cpp's Qwen3-TTS with cloned voices, whisper.cpp's
+server, speaches, Kokoro-FastAPI, a cloud API). **[voice/README.md](voice/README.md)** says how to
+set up each, cloned voices, and the echo cancelling speakers need.
 
 ## Write one
 

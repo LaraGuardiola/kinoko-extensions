@@ -440,7 +440,7 @@ describe("speaking", () => {
       const chunks: string[] = [];
       for await (const c of synth({ http: url, voice: "wheatley", language: "Spanish" })("Hola.", AbortSignal.timeout(5000))) chunks.push(new TextDecoder().decode(c));
       expect(chunks.join("")).toBe("PCMDATA");
-      expect(bodies[0]).toMatchObject({ input: "Hola.", voice: "wheatley", language: "Spanish", response_format: "pcm" });
+      expect(bodies[0]).toMatchObject({ model: "tts", input: "Hola.", voice: "wheatley", language: "Spanish", response_format: "pcm" });
       mkdirSync(ROOT, { recursive: true });
       writeFileSync(join(ROOT, "wheatley.txt"), "Te estarás preguntando.\n");
       writeFileSync(join(ROOT, "wheatley.spk"), "SPK");

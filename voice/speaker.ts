@@ -14,6 +14,8 @@ import { join } from "node:path";
 export type TtsBackend = ({ http: string; key?: string } | { command: string[] }) & {
   /** A cloned voice (~/.kinoko/voices/<name>.*) or one the server has; none: the model's own. */
   voice?: string;
+  /** The model's name, for servers that serve several (a cloud API: "gpt-4o-mini-tts"). */
+  model?: string;
   language?: string;
   /** How free the delivery is: lower is calmer and flatter (Qwen3-TTS: 0.9 unless set). */
   temperature?: number;
@@ -71,7 +73,7 @@ const SYNTH_LIMIT_MS = 60_000;
 export function synth(backend: TtsBackend): Synth {
   return async function* (text, signal) {
     if ("http" in backend) {
-      const body = { model: "tts", input: text, voice: backend.voice, language: backend.language, temperature: backend.temperature, response_format: "pcm" };
+      const body = { model: backend.model ?? "tts", input: text, voice: backend.voice, language: backend.language, temperature: backend.temperature, response_format: "pcm" };
       const res = await fetch(backend.http, {
         method: "POST",
         signal,
