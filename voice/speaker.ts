@@ -33,18 +33,39 @@ export interface Player {
   kill(): void;
 }
 
-/** pw-play reading raw PCM on its stdin. */
-export function openPlayer(rate: number): Player {
-  const proc = Bun.spawn(PLAY(rate), { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
+/**
+ * pw-play reading raw PCM on its stdin. end() waits for what was written to be heard, and no longer:
+ * a player that hangs (the output changed under it: a Bluetooth speaker connecting) is killed after
+ * that, so the next sentence gets a new one instead of waiting behind it for ever.
+ */
+export function openPlayer(rate: number, argv = PLAY(rate)): Player {
+  const proc = Bun.spawn(argv, { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
+  let first = 0;
+  let bytes = 0;
   return {
-    write: (chunk) => void proc.stdin.write(chunk),
+    write: (chunk) => {
+      first ||= performance.now();
+      bytes += chunk.length;
+      try {
+        void Promise.resolve(proc.stdin.write(chunk)).catch(() => undefined); // a player gone: end() sees it
+      } catch {
+        // the same
+      }
+    },
     end: async () => {
-      await proc.stdin.end();
-      await proc.exited;
+      await Promise.resolve(proc.stdin.end()).catch(() => undefined);
+      const heardBy = (first || performance.now()) + (bytes / (rate * 2)) * 1000 + END_SPARE_MS;
+      const late = Bun.sleep(Math.max(0, heardBy - performance.now())).then(() => "late" as const);
+      if ((await Promise.race([proc.exited, late])) === "late") proc.kill();
     },
     kill: () => proc.kill(),
   };
 }
+
+/** How long past the end of its audio a player may take to finish before it is taken as hung. */
+const END_SPARE_MS = 3_000;
+/** How long one sentence may take to come from the backend (it starts in ~0.1 s). */
+const SYNTH_LIMIT_MS = 60_000;
 
 /** A sentence's audio from the backend. */
 export function synth(backend: TtsBackend): Synth {
@@ -147,7 +168,7 @@ export class Speaker {
         }
         this.recent = [...this.recent, sentence].slice(-6);
         // oxlint-disable-next-line no-await-in-loop -- sentences are spoken in order
-        for await (const chunk of this.#deps.synth(sentence, stopper.signal)) this.#player.write(chunk);
+        for await (const chunk of this.#deps.synth(sentence, AbortSignal.any([stopper.signal, AbortSignal.timeout(SYNTH_LIMIT_MS)]))) this.#player.write(chunk);
       }
       if (!stopper.signal.aborted) await this.#player.end();
     } catch (e) {

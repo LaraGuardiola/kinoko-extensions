@@ -6,7 +6,7 @@ import { Bus } from "../testing/bus.ts";
 import { install, readConfig } from "./index.ts";
 import type { Deps, Voice, VoiceConfig } from "./index.ts";
 import { Sentences } from "./sentences.ts";
-import { Speaker, registerVoice, synth } from "./speaker.ts";
+import { Speaker, openPlayer, registerVoice, synth } from "./speaker.ts";
 import type { Player } from "./speaker.ts";
 import { audioContext, clean, transcribe } from "./stt.ts";
 import { Vad, loudness } from "./vad.ts";
@@ -250,6 +250,7 @@ describe("the voice extension", () => {
     await f.bus.press("ctrl-space");
     f.fail("pw-record stopped (1): no such target");
     expect(f.bus.shown).toBe("voice: pw-record stopped (1): no such target");
+    expect(await f.bus.command("voice")!("")).toContain("Last problem: pw-record stopped (1): no such target");
     await f.bus.press("ctrl-space"); // opens again
     expect(f.mics()).toBe(2);
   });
@@ -369,6 +370,16 @@ describe("speaking", () => {
     release?.();
     await silent(speaker);
     expect(log).toEqual(["kill", "kill"]); // killed at once (and again on the way out); "never" not made
+  });
+
+  test("a player that hangs is killed once its audio should have been heard, so the next sentence is not stuck behind it", async () => {
+    const at = performance.now();
+    const player = openPlayer(24_000, ["sleep", "60"]); // never reads, never ends
+    player.write(new Uint8Array(4_800)); // 0.1 s of audio
+    await player.end();
+    const took = performance.now() - at;
+    expect(took).toBeGreaterThan(3_000);
+    expect(took).toBeLessThan(4_500);
   });
 
   test("a backend that fails: said once, and the voice taught again next time", async () => {

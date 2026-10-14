@@ -85,6 +85,8 @@ export function install(k: Kinoko, deps: Deps): void {
   const sentences = new Sentences();
   /** The last things heard, for /voice: what whisper wrote, and what became of it. */
   let heardLately: string[] = [];
+  /** The last thing that went wrong, for /voice (the TUI shows no extension's log). */
+  let lastProblem: string | undefined;
   const remember = (text: string, what: string): void => {
     if (text !== "") heardLately = [...heardLately, `  "${text}" → ${what}`].slice(-5);
   };
@@ -117,7 +119,10 @@ export function install(k: Kinoko, deps: Deps): void {
     stopper = undefined;
     followUntil = 0;
     k.status(why === undefined ? undefined : `voice: ${why}`);
-    if (why !== undefined) k.log(`voice: ${why}`);
+    if (why !== undefined) {
+      lastProblem = why;
+      k.log(`voice: ${why}`);
+    }
   };
 
   const heard = async (config: VoiceConfig, pcm: Int16Array, signal: AbortSignal): Promise<void> => {
@@ -162,7 +167,12 @@ export function install(k: Kinoko, deps: Deps): void {
     if (typeof config === "string") return close(config);
     // "/voice none": the model's own voice, no clone.
     const tts = config.tts && voiceName !== undefined ? { ...config.tts, voice: voiceName === "none" ? undefined : voiceName } : config.tts;
-    speaker = tts ? deps.speaker(tts, (why) => k.log(`voice: could not speak: ${why}`)) : undefined;
+    speaker = tts
+      ? deps.speaker(tts, (why) => {
+          lastProblem = `could not speak: ${why}`;
+          k.log(`voice: ${lastProblem}`);
+        })
+      : undefined;
     const vad = new Vad({ rate: RATE });
     const own = new AbortController();
     stopper = own;
@@ -208,7 +218,7 @@ export function install(k: Kinoko, deps: Deps): void {
       const config = await deps.config();
       if (typeof config === "string") return `Voice is not set up: ${config}.`;
       const talks = config.tts ? (quiet ? "it does not talk (/voice talk)" : `it talks as ${voiceName ?? config.tts.voice ?? "the default voice"} (/voice quiet)`) : 'no "tts" in voice.json: it only listens';
-      const lately = heardLately.length > 0 ? `\nHeard lately:\n${heardLately.join("\n")}` : "";
+      const lately = (heardLately.length > 0 ? `\nHeard lately:\n${heardLately.join("\n")}` : "") + (lastProblem ? `\nLast problem: ${lastProblem}` : "");
       return (mic ? `Listening: say "kinoko, …"; ${talks}. Ctrl+Space turns it off.` : `Voice is off: Ctrl+Space turns it on; ${talks}.`) + lately;
     },
     "talking with kinoko: on or off, the voice (/voice <name>, /voice none), quiet or talk",
