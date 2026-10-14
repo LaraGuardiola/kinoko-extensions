@@ -11,7 +11,14 @@ import { join } from "node:path";
  * `http`: an OpenAI-compatible /v1/audio/speech, asked for raw 16-bit PCM ("pcm") streamed as it is
  * made. `command`: a program that reads the text on stdin and writes raw 16-bit mono PCM to stdout.
  */
-export type TtsBackend = ({ http: string; key?: string } | { command: string[] }) & { voice?: string; language?: string; rate?: number };
+export type TtsBackend = ({ http: string; key?: string } | { command: string[] }) & {
+  /** A cloned voice (~/.kinoko/voices/<name>.*) or one the server has; none: the model's own. */
+  voice?: string;
+  language?: string;
+  /** How free the delivery is: lower is calmer and flatter (Qwen3-TTS: 0.9 unless set). */
+  temperature?: number;
+  rate?: number;
+};
 
 export const VOICES = join(homedir(), ".kinoko", "voices");
 const PLAY = (rate: number): string[] => ["pw-play", "--raw", "--rate", String(rate), "--channels", "1", "--format", "s16", "-"];
@@ -21,86 +28,21 @@ export type Synth = (text: string, signal: AbortSignal) => AsyncIterable<Uint8Ar
 
 export interface Player {
   write(chunk: Uint8Array): void;
-  /** How loud from now on: 1 as made, less to make room for the user's voice. */
-  gain(g: number): void;
   /** No more audio: resolves once what was written has been heard. */
   end(): Promise<void>;
   kill(): void;
 }
 
-/** How far ahead of what is heard the player is fed: a change of volume is heard this soon. */
-const LEAD_S = 0.25;
-
-/** 16-bit samples made `g` times as loud. */
-export function scaled(chunk: Uint8Array, g: number): Uint8Array {
-  if (g === 1) return chunk;
-  const out = new Uint8Array(chunk);
-  const view = new DataView(out.buffer);
-  for (let i = 0; i + 1 < out.length; i += 2) view.setInt16(i, Math.round(view.getInt16(i, true) * g), true);
-  return out;
-}
-
-/**
- * pw-play reading raw PCM on its stdin, fed in real time: never more than a quarter of a second
- * ahead (the speech is made several times faster than it is heard, so the rest waits here), so a
- * lower volume, or silence, is heard at once.
- */
-export function openPlayer(rate: number, argv = PLAY(rate)): Player {
-  const proc = Bun.spawn(argv, { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
-  const waiting: Uint8Array[] = [];
-  let odd: number | undefined; // a sample split between two chunks
-  let loud = 1;
-  let ended = false;
-  const killed = new AbortController();
-  const bytesPerSecond = rate * 2;
-  const pump = (async () => {
-    let start = 0;
-    let sent = 0;
-    while (!killed.signal.aborted) {
-      const chunk = waiting.shift();
-      if (chunk === undefined) {
-        if (ended) break;
-        // oxlint-disable-next-line no-await-in-loop -- waiting for more speech
-        await Bun.sleep(15);
-        continue;
-      }
-      const now = performance.now() / 1000;
-      if (start === 0 || sent / bytesPerSecond - (now - start) < 0) {
-        start = now; // nothing left playing: count from here (a gap between sentences)
-        sent = 0;
-      }
-      const ahead = sent / bytesPerSecond - (now - start);
-      // oxlint-disable-next-line no-await-in-loop -- feeding in real time is the point
-      if (ahead > LEAD_S) await Bun.sleep((ahead - LEAD_S) * 1000);
-      if (killed.signal.aborted) break;
-      const audio = scaled(chunk, loud);
-      proc.stdin.write(audio);
-      sent += audio.length;
-    }
-  })();
+/** pw-play reading raw PCM on its stdin. */
+export function openPlayer(rate: number): Player {
+  const proc = Bun.spawn(PLAY(rate), { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
   return {
-    write: (chunk) => {
-      const bytes = odd === undefined ? chunk : Uint8Array.of(odd, ...chunk);
-      odd = bytes.length % 2 === 1 ? bytes.at(-1) : undefined;
-      // Small pieces, so the volume can change within a sentence.
-      const whole = bytes.length - (bytes.length % 2);
-      const piece = Math.max(2, Math.round(bytesPerSecond * 0.05) & ~1);
-      for (let i = 0; i < whole; i += piece) waiting.push(bytes.subarray(i, Math.min(whole, i + piece)));
-    },
-    gain: (g) => {
-      loud = g;
-    },
+    write: (chunk) => void proc.stdin.write(chunk),
     end: async () => {
-      ended = true;
-      await pump;
       await proc.stdin.end();
       await proc.exited;
     },
-    kill: () => {
-      killed.abort();
-      waiting.length = 0;
-      proc.kill();
-    },
+    kill: () => proc.kill(),
   };
 }
 
@@ -108,7 +50,7 @@ export function openPlayer(rate: number, argv = PLAY(rate)): Player {
 export function synth(backend: TtsBackend): Synth {
   return async function* (text, signal) {
     if ("http" in backend) {
-      const body = { model: "tts", input: text, voice: backend.voice ?? "default", language: backend.language, response_format: "pcm" };
+      const body = { model: "tts", input: text, voice: backend.voice, language: backend.language, temperature: backend.temperature, response_format: "pcm" };
       const res = await fetch(backend.http, {
         method: "POST",
         signal,
@@ -142,9 +84,6 @@ export async function registerVoice(speechUrl: string, name: string, dir = VOICE
   return res?.ok === true;
 }
 
-/** How loud kinoko goes on while the user may be talking to it. */
-const DUCKED = 0.2;
-
 export interface SpeakerDeps {
   synth: Synth;
   player: () => Player;
@@ -161,7 +100,6 @@ export class Speaker {
   #working: Promise<void> | undefined;
   #ended = false;
   #prepared = false;
-  #gain = 1;
   /** What was said lately, so the microphone can tell kinoko's own voice from the user's. */
   recent: string[] = [];
 
@@ -185,12 +123,6 @@ export class Speaker {
     this.#ended = true;
   }
 
-  /** Quieter while the user may be talking (`on`), or as loud as made again. */
-  duck(on: boolean): void {
-    this.#gain = on ? DUCKED : 1;
-    this.#player?.gain(this.#gain);
-  }
-
   /** Silence, now. */
   stop(): void {
     this.#queue = [];
@@ -205,7 +137,6 @@ export class Speaker {
       if (!this.#prepared && this.#deps.prepare) await this.#deps.prepare();
       this.#prepared = true;
       this.#player = this.#deps.player();
-      this.#player.gain(this.#gain);
       while (!stopper.signal.aborted) {
         const sentence = this.#queue.shift();
         if (sentence === undefined) {

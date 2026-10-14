@@ -37,7 +37,7 @@ export interface VoiceConfig {
 }
 
 /** What install needs of a Speaker (tests pass a fake). */
-export type Voice = Pick<Speaker, "say" | "end" | "stop" | "duck" | "speaking" | "recent">;
+export type Voice = Pick<Speaker, "say" | "end" | "stop" | "speaking" | "recent">;
 
 export const CONFIG_PATH = join(homedir(), ".kinoko", "voice.json");
 
@@ -128,12 +128,10 @@ export function install(k: Kinoko, deps: Deps): void {
     try {
       text = await deps.transcribe(config.stt, pcm, signal);
     } catch (e) {
-      speaker?.duck(false);
       if (!signal.aborted) close(e instanceof Error ? e.message : String(e));
       return;
     }
     if (signal.aborted) return;
-    speaker?.duck(false); // stopped below when it was for kinoko
     const following = deps.now() < followUntil;
     const said = afterWake(text, config.wake) ?? (following ? text : undefined);
     // Its own voice, heard through the microphone, is not the user.
@@ -162,7 +160,8 @@ export function install(k: Kinoko, deps: Deps): void {
     opening = true;
     const config = await deps.config().finally(() => (opening = false));
     if (typeof config === "string") return close(config);
-    const tts = config.tts && voiceName ? { ...config.tts, voice: voiceName } : config.tts;
+    // "/voice none": the model's own voice, no clone.
+    const tts = config.tts && voiceName !== undefined ? { ...config.tts, voice: voiceName === "none" ? undefined : voiceName } : config.tts;
     speaker = tts ? deps.speaker(tts, (why) => k.log(`voice: could not speak: ${why}`)) : undefined;
     const vad = new Vad({ rate: RATE });
     const own = new AbortController();
@@ -171,10 +170,8 @@ export function install(k: Kinoko, deps: Deps): void {
       config.record,
       (pcm) => {
         for (const event of vad.push(pcm)) {
-          // Someone speaks while kinoko talks: quieter at once, before a word is transcribed; if it
-          // was for kinoko it stops, if not (someone else, a noise) it comes back up.
-          if (event.type === "start") speaker?.duck(true);
-          else queue = queue.then(() => heard(config, event.pcm, own.signal));
+          // kinoko keeps talking over other voices in the room: it stops only for a "kinoko, …".
+          if (event.type === "end") queue = queue.then(() => heard(config, event.pcm, own.signal));
         }
       },
       (why) => {
@@ -204,7 +201,9 @@ export function install(k: Kinoko, deps: Deps): void {
       }
       if (word !== "") {
         voiceName = word;
-        return `Voice: ${word} (from ~/.kinoko/voices/${word}.*). It speaks with it the next time voice mode is turned on.`;
+        return word === "none"
+          ? "Voice: the model's own (no clone), the next time voice mode is turned on."
+          : `Voice: ${word} (from ~/.kinoko/voices/${word}.*). It speaks with it the next time voice mode is turned on.`;
       }
       const config = await deps.config();
       if (typeof config === "string") return `Voice is not set up: ${config}.`;
@@ -212,7 +211,7 @@ export function install(k: Kinoko, deps: Deps): void {
       const lately = heardLately.length > 0 ? `\nHeard lately:\n${heardLately.join("\n")}` : "";
       return (mic ? `Listening: say "kinoko, …"; ${talks}. Ctrl+Space turns it off.` : `Voice is off: Ctrl+Space turns it on; ${talks}.`) + lately;
     },
-    "talking with kinoko: on or off, the voice (/voice <name>), quiet or talk",
+    "talking with kinoko: on or off, the voice (/voice <name>, /voice none), quiet or talk",
   );
 }
 

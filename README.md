@@ -83,7 +83,8 @@ clip in `~/.kinoko/voices/`: `<name>.wav` (10–15 s, one person, no music) and 
 says). The extension teaches it to the server when voice mode starts. Encode the clip ahead once
 (`qwen-codec --device CPU --model <tokenizer.gguf> --talker <talker.gguf> -i <name>.wav` writes
 `<name>.spk` and `<name>.rvq` beside it) and the server does not have to, which needs GPU memory a
-loaded LLM may have taken. `/voice <name>` picks another voice, `/voice quiet` keeps it listening
+loaded LLM may have taken. `"temperature"` (Qwen3-TTS: 0.9 unless set) makes the delivery calmer and flatter when lower; no
+`"voice"`, or `/voice none`, is the model's own voice. `/voice <name>` picks another voice, `/voice quiet` keeps it listening
 without talking, `/voice talk` brings the voice back.
 
 **Echo cancelling** (needed with speakers, not with headphones): the microphone hears kinoko
@@ -94,8 +95,8 @@ touched and the default microphone does not change: a config with
 `libpipewire-module-echo-cancel` (`library.name = aec/libspa-aec-webrtc`, `monitor.mode = true`,
 its source named `kinoko-aec-source`), started by a user service (`pipewire -c <that config>`), then
 `"record": ["pw-record", "--target", "kinoko-aec-source", "--raw", "--rate", "16000", "--channels",
-"1", "--format", "s16", "-"]` in voice.json. While kinoko talks, someone speaking makes it quieter
-at once; when what was said starts with "kinoko" it stops, otherwise it comes back up.
+"1", "--format", "s16", "-"]` in voice.json. While kinoko talks, other voices in the room do not
+stop it: only something said to it ("kinoko, …") does.
 
 `{wav}` is the utterance, `{ac}` whisper's audio window sized to it (left out, whisper works through
 30 s of audio for every phrase: ten times slower). `--prompt Kinoko` teaches it the name. Any
