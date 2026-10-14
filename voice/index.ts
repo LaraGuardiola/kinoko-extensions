@@ -1,11 +1,14 @@
-// Talking to kinoko. Ctrl+Space opens the microphone (and Ctrl+Space again closes it); what you
-// say that starts with "kinoko" is sent as your prompt ("Kinoko, mira por qué falla el test"), or
-// while it works as a steer that goes in at once (the reply or the tools running are cut). "Kinoko" on its own: the next thing said, within a few seconds, is
-// for kinoko without the name. The rule above the input says it is listening.
+// Talking with kinoko. Ctrl+Space turns voice mode on (and off again): kinoko listens, and reads
+// its replies aloud as it writes them. What you say that starts with "kinoko" is your prompt
+// ("Kinoko, mira por qué falla el test"), or, while it works, a steer that goes in at once (the
+// reply or the tools running are cut). "Kinoko" on its own: the next thing said, within a few
+// seconds, is for kinoko without the name. Esc, or talking to it, stops its voice. The rule above
+// the input says it is listening.
 //
 // ~/.kinoko/voice.json (see README):
 //   { "stt": { "command": ["whisper-cli", "-m", "…/ggml-small-q5_1.bin", "-l", "es", "-ac", "{ac}",
 //              "--prompt", "Kinoko", "-nt", "-np", "-f", "{wav}"] },
+//     "tts": { "http": "http://127.0.0.1:8091/v1/audio/speech", "voice": "wheatley", "language": "Spanish" },
 //     "wake": "kinoko", "record": ["pw-record", …] }
 // or an OpenAI-compatible server: { "stt": { "http": "http://127.0.0.1:8092/v1/audio/transcriptions" } }
 
@@ -15,10 +18,13 @@ import { join } from "node:path";
 import type { Kinoko } from "../api.ts";
 import { RATE, RECORD, openMic } from "./mic.ts";
 import type { Mic } from "./mic.ts";
+import { Sentences } from "./sentences.ts";
+import { Speaker, openPlayer, registerVoice, synth } from "./speaker.ts";
+import type { TtsBackend } from "./speaker.ts";
 import { transcribe } from "./stt.ts";
 import type { SttBackend } from "./stt.ts";
 import { Vad } from "./vad.ts";
-import { afterWake } from "./wake.ts";
+import { afterWake, isEcho } from "./wake.ts";
 
 export interface VoiceConfig {
   stt: SttBackend;
@@ -26,7 +32,12 @@ export interface VoiceConfig {
   wake: string;
   /** The program that records: raw 16 kHz mono s16 on its stdout. */
   record: string[];
+  /** How replies are read aloud; without it kinoko only listens. */
+  tts?: TtsBackend;
 }
+
+/** What install needs of a Speaker (tests pass a fake). */
+export type Voice = Pick<Speaker, "say" | "end" | "stop" | "speaking" | "recent">;
 
 export const CONFIG_PATH = join(homedir(), ".kinoko", "voice.json");
 
@@ -48,13 +59,16 @@ export async function readConfig(path = CONFIG_PATH): Promise<VoiceConfig | stri
   const usable = stt !== undefined && ((Array.isArray(stt.command) && stt.command.length > 0) || typeof stt.http === "string");
   if (!usable) return `${path} needs "stt": a "command" or an "http" endpoint`;
   const backend = raw.stt as SttBackend;
-  return { stt: "command" in backend ? { command: backend.command.map(home) } : backend, wake: raw.wake ?? "kinoko", record: (raw.record ?? RECORD).map(home) };
+  const tts = raw.tts && "command" in raw.tts ? { ...raw.tts, command: raw.tts.command.map(home) } : raw.tts;
+  return { stt: "command" in backend ? { command: backend.command.map(home) } : backend, wake: raw.wake ?? "kinoko", record: (raw.record ?? RECORD).map(home), ...(tts ? { tts } : {}) };
 }
 
 export interface Deps {
   config: () => Promise<VoiceConfig | string>;
   openMic: typeof openMic;
   transcribe: (stt: SttBackend, pcm: Int16Array, signal: AbortSignal) => Promise<string>;
+  /** A voice that speaks through `tts`; `failed` when it cannot. */
+  speaker: (tts: TtsBackend, failed: (why: string) => void) => Voice;
   now: () => number;
 }
 
@@ -65,10 +79,33 @@ export function install(k: Kinoko, deps: Deps): void {
   let opening = false; // Ctrl+Space pressed twice while the config is read: one microphone
   /** Utterances are transcribed one after the other, in the order they were said. */
   let queue = Promise.resolve();
+  let speaker: Voice | undefined; // while voice mode is on, and a "tts" is set up
+  let quiet = false; // /voice quiet: listening only
+  let voiceName: string | undefined; // /voice <name>, over the config's
+  const sentences = new Sentences();
+
+  const hush = (): void => {
+    speaker?.stop();
+    sentences.reset();
+  };
+
+  // The reply, read aloud as it is written: sentence by sentence; a new run starts from silence.
+  k.on("agent_event", (e) => {
+    if (speaker === undefined || quiet) return;
+    if (e.type === "run_start") hush();
+    else if (e.type === "message_delta") for (const s of sentences.push(e.delta)) speaker.say(s);
+    else if (e.type === "message_end") {
+      for (const s of sentences.flush()) speaker.say(s);
+      speaker.end();
+    } else if (e.type === "run_end" && e.reason === "aborted") hush();
+  });
+  k.on("interrupt", hush);
 
   const listening = (): void => k.status(deps.now() < followUntil ? "● kinoko hears you" : "● listening");
 
   const close = (why?: string): void => {
+    hush();
+    speaker = undefined;
     mic?.stop();
     mic = undefined;
     stopper?.abort();
@@ -92,6 +129,8 @@ export function install(k: Kinoko, deps: Deps): void {
     if (signal.aborted) return;
     const following = deps.now() < followUntil;
     const said = afterWake(text, config.wake) ?? (following ? text : undefined);
+    // Its own voice, heard through the microphone, is not the user.
+    if (speaker && said !== undefined && isEcho(said, speaker.recent)) return listening();
     if (said === "") {
       // The name alone: the next words are for kinoko; after a while, the name is needed again.
       followUntil = deps.now() + FOLLOW_MS;
@@ -100,6 +139,7 @@ export function install(k: Kinoko, deps: Deps): void {
       }, FOLLOW_MS + 50).unref();
     } else if (said !== undefined) {
       followUntil = 0;
+      hush(); // talked to, it stops talking
       // Said while kinoko works, it goes in at once: the reply or the tools running are cut (Alt+X's way).
       if (!k.send(said, { as: "steer_now" })) k.log(`voice: heard "${said}", but there is nowhere to send it`);
     }
@@ -111,6 +151,8 @@ export function install(k: Kinoko, deps: Deps): void {
     opening = true;
     const config = await deps.config().finally(() => (opening = false));
     if (typeof config === "string") return close(config);
+    const tts = config.tts && voiceName ? { ...config.tts, voice: voiceName } : config.tts;
+    speaker = tts ? deps.speaker(tts, (why) => k.log(`voice: could not speak: ${why}`)) : undefined;
     const vad = new Vad({ rate: RATE });
     const own = new AbortController();
     stopper = own;
@@ -135,13 +177,28 @@ export function install(k: Kinoko, deps: Deps): void {
       else return open();
       return undefined;
     },
-    'Voice on/off: say "kinoko, …" and it is a prompt',
+    'Voice on/off: kinoko listens ("kinoko, …") and talks',
   );
-  k.registerCommand("voice", async () => {
-    if (mic) return `Listening: say "kinoko, …". Ctrl+Space closes the microphone.`;
-    const config = await deps.config();
-    return typeof config === "string" ? `Voice is not set up: ${config}.` : `Voice is off: Ctrl+Space opens the microphone.`;
-  }, "talking to kinoko: is it listening, and how to set it up");
+  k.registerCommand(
+    "voice",
+    async (args) => {
+      const word = args.trim();
+      if (word === "quiet" || word === "talk") {
+        quiet = word === "quiet";
+        if (quiet) hush();
+        return quiet ? "Kinoko listens but does not talk. /voice talk to hear it again." : "Kinoko talks again (in voice mode).";
+      }
+      if (word !== "") {
+        voiceName = word;
+        return `Voice: ${word} (from ~/.kinoko/voices/${word}.*). It speaks with it the next time voice mode is turned on.`;
+      }
+      const config = await deps.config();
+      if (typeof config === "string") return `Voice is not set up: ${config}.`;
+      const talks = config.tts ? (quiet ? "it does not talk (/voice talk)" : `it talks as ${voiceName ?? config.tts.voice ?? "the default voice"} (/voice quiet)`) : 'no "tts" in voice.json: it only listens';
+      return mic ? `Listening: say "kinoko, …"; ${talks}. Ctrl+Space turns it off.` : `Voice is off: Ctrl+Space turns it on; ${talks}.`;
+    },
+    "talking with kinoko: on or off, the voice (/voice <name>), quiet or talk",
+  );
 }
 
 export default function voice(k: Kinoko): void {
@@ -149,6 +206,13 @@ export default function voice(k: Kinoko): void {
     config: () => readConfig(),
     openMic,
     transcribe: (stt, pcm, signal) => transcribe(stt, pcm, RATE, signal),
+    speaker: (tts, failed) =>
+      new Speaker({
+        synth: synth(tts),
+        player: () => openPlayer(tts.rate ?? 24_000),
+        prepare: "http" in tts && tts.voice ? async () => void (await registerVoice(tts.http, tts.voice ?? "")) : undefined,
+        failed,
+      }),
     now: () => Date.now(),
   });
 }

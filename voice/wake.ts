@@ -47,3 +47,16 @@ export function afterWake(text: string, wake: string): string | undefined {
     .replace(/^[\s,.:;!?¡¿-]+/u, "")
     .trim();
 }
+
+const words = (text: string): string[] => [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((m) => sound(m[0]));
+
+/**
+ * Whether what the microphone heard is kinoko's own voice (it talks through the speakers): most of
+ * its words are in the sentences it said lately. A few words ("para", "sigue") are always the user's.
+ */
+export function isEcho(heard: string, said: string[]): boolean {
+  const spoken = new Set(words(said.join(" ")));
+  const mine = words(heard);
+  if (mine.length < 3 || spoken.size === 0) return false;
+  return mine.filter((w) => spoken.has(w)).length / mine.length >= 0.6;
+}
