@@ -20,7 +20,7 @@ export interface VadOptions {
   minDb: number;
 }
 
-export const VAD_DEFAULTS: VadOptions = { rate: 16_000, startMs: 200, endMs: 700, preRollMs: 1000, maxMs: 30_000, marginDb: 7, minDb: -80 };
+export const VAD_DEFAULTS: VadOptions = { rate: 16_000, startMs: 200, endMs: 700, preRollMs: 1000, maxMs: 15_000, marginDb: 7, minDb: -80 };
 
 export type VadEvent = { type: "start" } | { type: "end"; pcm: Int16Array };
 

@@ -15,7 +15,7 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 | `permission-gate` | Gates dangerous shell commands: a hardline nothing opens (`rm -rf /`, mkfs...), and `sudo`, `rm -rf`, `chmod 777`... ask you first (the TUI, the phone, Telegram) unless `KINOKO_YOLO=1`. Needs a kinoko with approvals. |
 | `plan-mode` | Read-only: blocks `write`, `edit` and any bash command that is not plainly read-only. |
 | `telegram` | `telegram_send`: the model sends you a file in the Telegram chat paired in kinoko's `/integrations` ("send me the report on Telegram"), up to 50 MB, as it is. |
-| `voice` | Talk to kinoko. Ctrl+Space opens the microphone (and closes it): say "kinoko, …" and it is your prompt, or a steer while it works; "kinoko" alone, and the next words are for it. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) or any OpenAI-compatible server, set up below. Linux (PipeWire). Needs a kinoko with `registerKey` and `send`. |
+| `voice` | Talk with kinoko. Ctrl+Space turns voice mode on (and off): say "kinoko, …" and it is your prompt, or a steer that goes in at once while it works; "kinoko" alone, and the next words are for it. It reads its replies aloud as it writes them, sentence by sentence, in a voice you can clone; Esc or talking to it stops it. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp), text to speech by [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) (Qwen3-TTS), or any OpenAI-compatible servers; set up below. Linux (PipeWire). Needs a kinoko with `registerKey` and `send`. |
 | `vision` | `view` and `screenshot`: the model looks at pictures and videos (any format ffmpeg decodes, scaled; a video as frames spread over it) and at the screen or the focused window. Needs a vision model and a kinoko whose tools can answer with images. `screenshot` everywhere but Windows. |
 | `web` | `web_search` and `web_fetch`. Searches with Tavily, Exa or your own SearXNG when set up (all free, see below), else Brave's, DuckDuckGo's and Bing's pages and Wikipedia; scraped results must be about the query. Pages as markdown with links and code blocks. |
 
@@ -54,26 +54,11 @@ It is read on every search: no restart.
 
 ## Talking to kinoko (voice)
 
-The `voice` extension records with PipeWire's `pw-record` and reads `~/.kinoko/voice.json` for how
-to turn speech into text. With [whisper.cpp](https://github.com/ggml-org/whisper.cpp) built
-(`cmake -B build && cmake --build build -j --target whisper-cli`) and its small multilingual model
-(`ggml-small-q5_1.bin`, 190 MB: a 2-second phrase in ~0.3 s on a laptop CPU):
-
-```json
-{
-  "stt": {
-    "command": ["~/Projects/whisper.cpp/build/bin/whisper-cli", "-m", "~/Projects/whisper.cpp/models/ggml-small-q5_1.bin",
-                "-l", "es", "-t", "8", "-bs", "1", "-bo", "1", "-ac", "{ac}", "--prompt", "Kinoko", "-nt", "-np", "-f", "{wav}"]
-  }
-}
-```
-
-`{wav}` is the utterance, `{ac}` whisper's audio window sized to it (left out, whisper works through
-30 s of audio for every phrase: ten times slower). `--prompt Kinoko` teaches it the name. Any
-OpenAI-compatible server works instead: `"stt": { "http": "http://127.0.0.1:8092/v1/audio/transcriptions",
-"language": "es" }` (with `"key"` for a cloud one). `"wake"` changes the name it answers to;
-`"record"` the program that records (raw 16 kHz mono s16 on its stdout). `/voice` says whether it
-is listening, or what is missing.
+Ctrl+Space and kinoko listens ("kinoko, …") and talks back as it writes. Speech to text and text to
+speech are backends you choose in `~/.kinoko/voice.json`: a program (whisper.cpp's `whisper-cli`,
+piper) or any OpenAI-compatible server (qwentts.cpp's Qwen3-TTS with cloned voices, whisper.cpp's
+server, speaches, Kokoro-FastAPI, a cloud API). **[voice/README.md](voice/README.md)** says how to
+set up each, cloned voices, and the echo cancelling speakers need.
 
 ## Write one
 

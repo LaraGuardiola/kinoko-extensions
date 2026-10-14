@@ -35,15 +35,35 @@ export function isWake(word: string, wake: string): boolean {
 }
 
 /**
- * What was said after the wake word, when the utterance starts with it (within its first three
- * words: "oye kinoko", "eh, kinoko"): "" for the name alone; undefined when it is not for kinoko.
+ * What was said after the wake word, when a sentence starts with it (within its first three words:
+ * "oye kinoko", "eh, kinoko"): "" for the name alone; undefined when nothing is for kinoko. Any
+ * sentence, not only the first: with people talking nearby there is no silence between them and
+ * you, so your "Kinoko, …" arrives in the middle of what the microphone heard.
  */
 export function afterWake(text: string, wake: string): string | undefined {
-  const words = [...text.matchAll(/[\p{L}\p{N}]+/gu)].slice(0, 3);
-  const at = words.find((w) => isWake(w[0], wake));
-  if (at === undefined) return undefined;
-  return text
-    .slice((at.index ?? 0) + at[0].length)
-    .replace(/^[\s,.:;!?¡¿-]+/u, "")
-    .trim();
+  // Where each sentence starts: the beginning, and after . ! ? … (whisper punctuates).
+  const starts = [0, ...[...text.matchAll(/[.!?…]+["')\]]*\s+/g)].map((m) => (m.index ?? 0) + m[0].length)];
+  for (const start of starts) {
+    const sentence = text.slice(start);
+    const at = [...sentence.matchAll(/[\p{L}\p{N}]+/gu)].slice(0, 3).find((w) => isWake(w[0], wake));
+    if (at !== undefined)
+      return sentence
+        .slice((at.index ?? 0) + at[0].length)
+        .replace(/^[\s,.:;!?¡¿-]+/u, "")
+        .trim();
+  }
+  return undefined;
+}
+
+const words = (text: string): string[] => [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((m) => sound(m[0]));
+
+/**
+ * Whether what the microphone heard is kinoko's own voice (it talks through the speakers): most of
+ * its words are in the sentences it said lately. A few words ("para", "sigue") are always the user's.
+ */
+export function isEcho(heard: string, said: string[]): boolean {
+  const spoken = new Set(words(said.join(" ")));
+  const mine = words(heard);
+  if (mine.length < 3 || spoken.size === 0) return false;
+  return mine.filter((w) => spoken.has(w)).length / mine.length >= 0.6;
 }
