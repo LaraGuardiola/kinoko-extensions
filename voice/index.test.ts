@@ -182,8 +182,8 @@ describe("the voice extension", () => {
     await s.say(utterance());
     await s.say(utterance());
     expect(s.bus.sent).toEqual([
-      { text: "mira por qué falla el test.", as: "prompt" },
-      { text: "gracias", as: "prompt" },
+      { text: "mira por qué falla el test.", as: "steer_now" },
+      { text: "gracias", as: "steer_now" },
     ]);
     expect(s.bus.shown).toBe("● listening");
     await s.bus.press("ctrl-space");

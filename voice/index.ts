@@ -1,6 +1,6 @@
 // Talking to kinoko. Ctrl+Space opens the microphone (and Ctrl+Space again closes it); what you
 // say that starts with "kinoko" is sent as your prompt ("Kinoko, mira por qué falla el test"), or
-// as a steer while it works. "Kinoko" on its own: the next thing said, within a few seconds, is
+// while it works as a steer that goes in at once (the reply or the tools running are cut). "Kinoko" on its own: the next thing said, within a few seconds, is
 // for kinoko without the name. The rule above the input says it is listening.
 //
 // ~/.kinoko/voice.json (see README):
@@ -100,7 +100,8 @@ export function install(k: Kinoko, deps: Deps): void {
       }, FOLLOW_MS + 50).unref();
     } else if (said !== undefined) {
       followUntil = 0;
-      if (!k.send(said)) k.log(`voice: heard "${said}", but there is nowhere to send it`);
+      // Said while kinoko works, it goes in at once: the reply or the tools running are cut (Alt+X's way).
+      if (!k.send(said, { as: "steer_now" })) k.log(`voice: heard "${said}", but there is nowhere to send it`);
     }
     listening();
   };
