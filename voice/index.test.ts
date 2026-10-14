@@ -81,6 +81,9 @@ describe("the wake word", () => {
     expect(afterWake("Kinokoko.", "kinoko")).toBe("");
     expect(afterWake("Kinoko", "kinoko")).toBe("");
     expect(afterWake("Kínogo, sigue", "kinoko")).toBe("sigue");
+    // Others talking right before: no silence between them and you, one utterance.
+    expect(afterWake("Al final tampoco es que fuera tan maravillosa. Kinoko, mira el test.", "kinoko")).toBe("mira el test.");
+    expect(afterWake("¿Y qué más da? Oye kinoko, para.", "kinoko")).toBe("para.");
   });
 
   test("not for kinoko: other words, the name too late, words that only look close", () => {
