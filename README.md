@@ -11,11 +11,11 @@ Extensions for [kinoko](https://github.com/LaraGuardiola/kinoko), one folder eac
 | `herdr` | Inside [herdr](https://herdr.dev), reports kinoko as an agent: herdr's sidebar shows it, and Flux for Android gets **Live**, the pane sized to the phone. |
 | `mermaid` | ```` ```mermaid ```` blocks drawn in the terminal: flowcharts (subgraphs framed), state diagrams, sequence diagrams, pie charts. Fits the width: redraws top-down, then lists the edges. Needs a kinoko with `registerRenderer`. |
 | `latex` | LaTeX math drawn in Unicode: `$$…$$` and `\[…\]` blocks (and ```` ```math ```` / ```` ```latex ```` fences) with fractions stacked, roots, ∑/∫/lim with their limits, matrices, cases and aligned lines; inline `$…$` and `\(…\)` on one line (x², a/b, √x). Too wide, a block goes on one line; what it cannot read stays as source. Needs a kinoko that hands math to renderers (`math`, `math-inline`). |
-| `music_watch` | `music_watch`: polls cliamp for song changes and returns when the track changes. Use it to auto-detect when music changes so you can update the todo list. Returns the new song title when changed, or the current song if timeout is reached. |
 | `notify` | When a run of 30 s or more ends, a desktop notification and, with `KINOKO_NTFY` set, one on the phone through [ntfy](https://ntfy.sh). Quiet while kinoko's window has focus (Hyprland). A `notify` tool for the model too. The desktop one on Linux and macOS; ntfy anywhere. |
 | `permission-gate` | Gates dangerous shell commands: a hardline nothing opens (`rm -rf /`, mkfs...), and `sudo`, `rm -rf`, `chmod 777`... ask you first (the TUI, the phone, Telegram) unless `KINOKO_YOLO=1`. Needs a kinoko with approvals. |
 | `plan-mode` | Read-only: blocks `write`, `edit` and any bash command that is not plainly read-only. |
 | `telegram` | `telegram_send`: the model sends you a file in the Telegram chat paired in kinoko's `/integrations` ("send me the report on Telegram"), up to 50 MB, as it is. |
+| `voice` | Talk to kinoko. Ctrl+Space opens the microphone (and closes it): say "kinoko, …" and it is your prompt, or a steer while it works; "kinoko" alone, and the next words are for it. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) or any OpenAI-compatible server, set up below. Linux (PipeWire). Needs a kinoko with `registerKey` and `send`. |
 | `vision` | `view` and `screenshot`: the model looks at pictures and videos (any format ffmpeg decodes, scaled; a video as frames spread over it) and at the screen or the focused window. Needs a vision model and a kinoko whose tools can answer with images. `screenshot` everywhere but Windows. |
 | `web` | `web_search` and `web_fetch`. Searches with Tavily, Exa or your own SearXNG when set up (all free, see below), else Brave's, DuckDuckGo's and Bing's pages and Wikipedia; scraped results must be about the query. Pages as markdown with links and code blocks. |
 
@@ -51,6 +51,29 @@ Keys go in `~/.kinoko/web.json` (`chmod 600` it), only the ones you have:
 
 or in the environment (`TAVILY_API_KEY`, `EXA_API_KEY`, `SEARXNG_URL`; `BRAVE_API_KEY` works too).
 It is read on every search: no restart.
+
+## Talking to kinoko (voice)
+
+The `voice` extension records with PipeWire's `pw-record` and reads `~/.kinoko/voice.json` for how
+to turn speech into text. With [whisper.cpp](https://github.com/ggml-org/whisper.cpp) built
+(`cmake -B build && cmake --build build -j --target whisper-cli`) and its small multilingual model
+(`ggml-small-q5_1.bin`, 190 MB: a 2-second phrase in ~0.3 s on a laptop CPU):
+
+```json
+{
+  "stt": {
+    "command": ["~/Projects/whisper.cpp/build/bin/whisper-cli", "-m", "~/Projects/whisper.cpp/models/ggml-small-q5_1.bin",
+                "-l", "es", "-t", "8", "-bs", "1", "-bo", "1", "-ac", "{ac}", "--prompt", "Kinoko", "-nt", "-np", "-f", "{wav}"]
+  }
+}
+```
+
+`{wav}` is the utterance, `{ac}` whisper's audio window sized to it (left out, whisper works through
+30 s of audio for every phrase: ten times slower). `--prompt Kinoko` teaches it the name. Any
+OpenAI-compatible server works instead: `"stt": { "http": "http://127.0.0.1:8092/v1/audio/transcriptions",
+"language": "es" }` (with `"key"` for a cloud one). `"wake"` changes the name it answers to;
+`"record"` the program that records (raw 16 kHz mono s16 on its stdout). `/voice` says whether it
+is listening, or what is missing.
 
 ## Write one
 
